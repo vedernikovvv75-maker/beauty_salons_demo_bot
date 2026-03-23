@@ -36,6 +36,14 @@ router = Router()
 
 sessions: dict[int, dict] = {}
 pending_screens: dict[str, dict] = {}
+_demo_viewer_chat_id: int | None = None
+
+
+def get_viewer_chat_id() -> int | None:
+    if _demo_viewer_chat_id is not None:
+        return _demo_viewer_chat_id
+    raw = config.ADMIN_GROUP_CHAT_ID
+    return int(raw) if raw else None
 
 
 class DemoNegativeTextFilter(BaseFilter):
@@ -208,9 +216,43 @@ async def hears_demo(message: Message) -> None:
     await start_demo_rating(message)
 
 
+@router.message(Command("set_viewer"))
+async def cmd_set_viewer(message: Message) -> None:
+    global _demo_viewer_chat_id
+    if not is_admin(message.from_user.id):
+        await message.answer("Команда только для администраторов.")
+        return
+    parts = (message.text or "").split()
+    if len(parts) < 2:
+        current = get_viewer_chat_id()
+        await message.answer(
+            f"Текущий получатель модерации: <b>{current or 'не задан'}</b>\n\n"
+            "Использование:\n"
+            "<code>/set_viewer 123456789</code> — задать chat_id\n"
+            "<code>/set_viewer off</code> — сбросить на ADMIN_GROUP_CHAT_ID из .env",
+            parse_mode="HTML",
+        )
+        return
+    arg = parts[1].strip()
+    if arg.lower() == "off":
+        _demo_viewer_chat_id = None
+        await message.answer("Получатель сброшен на значение из .env.", parse_mode="HTML")
+        return
+    try:
+        _demo_viewer_chat_id = int(arg)
+    except ValueError:
+        await message.answer("Передайте числовой chat_id или <code>off</code>.", parse_mode="HTML")
+        return
+    await message.answer(
+        f"Модерация теперь идёт в <b>{_demo_viewer_chat_id}</b>.",
+        parse_mode="HTML",
+    )
+
+
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    extra = "/send_promo — рассылка (админ)\n" if is_admin(message.from_user.id) else ""
+    admin = is_admin(message.from_user.id)
+    extra = "/send_promo — рассылка\n/set_viewer — куда шлём модерацию\n" if admin else ""
     await message.answer(
         f"Команды:\n/start — сначала\n{extra}\nДемо показывает путь клиента и уведомления админам."
     )
@@ -310,9 +352,10 @@ async def on_photo(message: Message) -> None:
     s = get_session(uid)
     if s["step"] != "demo_wait_screenshot":
         return
-    if not config.ADMIN_GROUP_CHAT_ID:
+    viewer = get_viewer_chat_id()
+    if not viewer:
         await message.answer(
-            "Скрин получен. В проде админ подтвердил бы выдачу скидки. Задайте ADMIN_GROUP_CHAT_ID в .env для демо-кнопок.\n\n"
+            "Скрин получен. Задайте получателя через /set_viewer или ADMIN_GROUP_CHAT_ID в .env.\n\n"
             f"Промокод (демо): <b>{config.PROMO_CODE}</b>",
             parse_mode="HTML",
         )
@@ -340,7 +383,7 @@ async def on_photo(message: Message) -> None:
         f'Ссылка: <a href="tg://user?id={uid}">открыть диалог</a>'
     )
     await bot.send_photo(
-        config.ADMIN_GROUP_CHAT_ID,
+        viewer,
         file_id,
         caption=cap,
         parse_mode="HTML",
@@ -408,9 +451,10 @@ async def on_neg_text(message: Message) -> None:
     uid = message.from_user.id
     t = (message.text or "").strip()
     prev_step = get_session(uid)["step"]
-    if config.ADMIN_GROUP_CHAT_ID:
+    viewer = get_viewer_chat_id()
+    if viewer:
         await bot.send_message(
-            config.ADMIN_GROUP_CHAT_ID,
+            viewer,
             "🚨 <b>Негативный отзыв (демо)</b>\n"
             f"От: @{escape_html(message.from_user.username or '—')} / id {uid}\n"
             f"Текст: {escape_html(t)}\n"
