@@ -165,22 +165,18 @@ async def send_cta_block(message: Message) -> None:
 async def start_demo_rating(message: Message) -> None:
     set_step(message.from_user.id, "demo_rating")
     kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="⭐", callback_data="rate:1"),
-                InlineKeyboardButton(text="⭐⭐", callback_data="rate:2"),
-                InlineKeyboardButton(text="⭐⭐⭐", callback_data="rate:3"),
-            ],
-            [
-                InlineKeyboardButton(text="⭐⭐⭐⭐", callback_data="rate:4"),
-                InlineKeyboardButton(text="⭐⭐⭐⭐⭐", callback_data="rate:5"),
-            ],
-        ]
+        inline_keyboard=[[
+            InlineKeyboardButton(text="⭐", callback_data="rate:1"),
+            InlineKeyboardButton(text="⭐⭐", callback_data="rate:2"),
+            InlineKeyboardButton(text="⭐⭐⭐", callback_data="rate:3"),
+            InlineKeyboardButton(text="⭐⭐⭐⭐", callback_data="rate:4"),
+            InlineKeyboardButton(text="⭐⭐⭐⭐⭐", callback_data="rate:5"),
+        ]]
     )
     await message.answer(
         "🧪 <i>Демо-режим</i>\n\n"
         "Представьте, что клиент только что вышел от мастера.\n\n"
-        "<b>Оцените качество услуги от 1 до 5:</b>",
+        "<b>Оцените качество услуги:</b>",
         parse_mode="HTML",
         reply_markup=kb,
     )
@@ -329,17 +325,15 @@ async def cb_demo_neg_next(query: CallbackQuery) -> None:
     await query.answer()
     set_step(query.from_user.id, "demo_neg_second")
     kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="⭐", callback_data="rate:1"),
-                InlineKeyboardButton(text="⭐⭐", callback_data="rate:2"),
-                InlineKeyboardButton(text="⭐⭐⭐", callback_data="rate:3"),
-            ],
-        ]
+        inline_keyboard=[[
+            InlineKeyboardButton(text="⭐", callback_data="rate:1"),
+            InlineKeyboardButton(text="⭐⭐", callback_data="rate:2"),
+            InlineKeyboardButton(text="⭐⭐⭐", callback_data="rate:3"),
+        ]]
     )
     await query.message.answer(
         "🧪 <i>Демо-режим — негатив</i>\n\n"
-        "<b>Оцените услугу от ⭐ до ⭐⭐⭐</b> (недовольный клиент):",
+        "<b>Оцените услугу (недовольный клиент):</b>",
         parse_mode="HTML",
         reply_markup=kb,
     )
