@@ -127,7 +127,28 @@ def welcome_text() -> str:
     )
 
 
-async def send_stats_and_sales(message: Message) -> None:
+async def send_stats_and_sales(message: Message, uid: int | None = None) -> None:
+    ds = _get_demo_salon(uid) if uid else {}
+    salon_name = escape_html(ds.get("name", "ваш салон"))
+
+    ry = ds.get("ratingYandex")
+    r2 = ds.get("rating2gis")
+    ny = ds.get("reviewsYandex")
+    n2 = ds.get("reviews2gis")
+
+    reviews_block = ""
+    if ny is not None or n2 is not None:
+        parts = []
+        if ny is not None:
+            parts.append(f"Яндекс: <b>{ny}</b> (рейтинг {ry or '—'})")
+        if n2 is not None:
+            parts.append(f"2ГИС: <b>{n2}</b> (рейтинг {r2 or '—'})")
+        reviews_block = (
+            f"\n📊 <b>Текущие отзывы «{salon_name}»:</b>\n"
+            + "\n".join(f"    • {p}" for p in parts)
+            + "\n"
+        )
+
     await message.answer(
         "🖥️ <b>Как это выглядит для руководителя</b>\n\n"
         "Это был один проход. В реальности всё стекается в Telegram-группу и таблицу.\n\n"
@@ -135,7 +156,12 @@ async def send_stats_and_sales(message: Message) -> None:
         "✅ Положительных оценок (4–5): <b>82%</b>\n"
         "📝 Скринов на проверке: <b>3</b>\n"
         "💰 Выдано скидок: <b>145</b>\n"
-        "🚨 Отработано негатива: <b>2</b> инцидента\n\n"
+        "🚨 Отработано негатива: <b>2</b> инцидента\n"
+        "📈 Новых отзывов за месяц: <b>+38</b>\n"
+        "    • 😊 позитивных: <b>34</b>\n"
+        "    • 😐 нейтральных: <b>3</b>\n"
+        "    • 😠 негативных: <b>1</b> (отработан)\n"
+        f"{reviews_block}\n"
         "Дальше — выгода и форматы сотрудничества.",
         parse_mode="HTML",
     )
@@ -213,11 +239,11 @@ async def start_demo_rating(message: Message) -> None:
     set_step(message.from_user.id, "demo_rating")
     kb = InlineKeyboardMarkup(
         inline_keyboard=[[
-            InlineKeyboardButton(text="⭐", callback_data="rate:1"),
-            InlineKeyboardButton(text="⭐⭐", callback_data="rate:2"),
-            InlineKeyboardButton(text="⭐⭐⭐", callback_data="rate:3"),
-            InlineKeyboardButton(text="⭐⭐⭐⭐", callback_data="rate:4"),
-            InlineKeyboardButton(text="⭐⭐⭐⭐⭐", callback_data="rate:5"),
+            InlineKeyboardButton(text="☆", callback_data="rate:1"),
+            InlineKeyboardButton(text="☆", callback_data="rate:2"),
+            InlineKeyboardButton(text="☆", callback_data="rate:3"),
+            InlineKeyboardButton(text="☆", callback_data="rate:4"),
+            InlineKeyboardButton(text="☆", callback_data="rate:5"),
         ]]
     )
     await message.answer(
@@ -326,12 +352,33 @@ async def cmd_help(message: Message) -> None:
     )
 
 
+def _stars_kb(selected: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(
+                text="⭐" if i <= selected else "☆",
+                callback_data=f"rate:{i}",
+            )
+            for i in range(1, 6)
+        ]]
+    )
+
+
 @router.callback_query(F.data.startswith("rate:"))
 async def cb_rate(query: CallbackQuery) -> None:
     await query.answer()
     n = int(query.data.split(":")[1])
     uid = query.from_user.id
     s = get_session(uid)
+
+    if s["step"] in ("demo_rating", "demo_neg_second") and s.get("_rate_confirmed") != n:
+        s["_rate_confirmed"] = n
+        stars_text = "⭐" * n + "☆" * (5 - n)
+        await query.message.edit_reply_markup(reply_markup=_stars_kb(n))
+        return
+
+    s.pop("_rate_confirmed", None)
+
     if s["step"] == "demo_rating":
         if n >= 4:
             set_step(uid, "demo_positive")
@@ -378,7 +425,7 @@ async def cb_rate(query: CallbackQuery) -> None:
     if s["step"] == "demo_neg_second":
         if n >= 4:
             await query.answer(
-                text="В демо негатива нажмите 1, 2 или 3",
+                text="Для демо негативного сценария выберите от 1⭐ до 3⭐",
                 show_alert=True,
             )
             return
@@ -395,7 +442,13 @@ async def cb_ready_screen(query: CallbackQuery) -> None:
     await query.answer()
     set_step(query.from_user.id, "demo_wait_screenshot")
     await query.message.answer(
-        "Отправьте скриншот отзыва в этот чат. В демо подойдёт любое фото — покажу модерацию.",
+        "Отправьте скриншот отзыва в этот чат. Вы можете отправить любое фото — покажу модерацию.\n\n"
+        "В реальности, когда человек отправит недействительный скриншот, вы его отклоните "
+        "и пользователь в боте получит соответствующее сообщение. Это контролирует получение скидок.\n\n"
+        "У клиента есть возможность отправить скрин только один раз (либо Яндекс.Карты, либо 2ГИС). "
+        "Это защищает от злоупотреблений клиентами в получении скидки на посещение салона "
+        "и подозрения на накрутку от картографических сервисов. "
+        "Один клиент — один отзыв и никаких проблем с модерацией отзывов на площадке.",
         parse_mode="HTML",
     )
 
@@ -415,9 +468,11 @@ async def cb_demo_neg_next(query: CallbackQuery) -> None:
     set_step(query.from_user.id, "demo_neg_second")
     kb = InlineKeyboardMarkup(
         inline_keyboard=[[
-            InlineKeyboardButton(text="⭐", callback_data="rate:1"),
-            InlineKeyboardButton(text="⭐⭐", callback_data="rate:2"),
-            InlineKeyboardButton(text="⭐⭐⭐", callback_data="rate:3"),
+            InlineKeyboardButton(text="☆", callback_data="rate:1"),
+            InlineKeyboardButton(text="☆", callback_data="rate:2"),
+            InlineKeyboardButton(text="☆", callback_data="rate:3"),
+            InlineKeyboardButton(text="☆", callback_data="rate:4"),
+            InlineKeyboardButton(text="☆", callback_data="rate:5"),
         ]]
     )
     await query.message.answer(
@@ -563,7 +618,7 @@ async def on_neg_text(message: Message) -> None:
             reply_markup=kb,
         )
     else:
-        await send_stats_and_sales(message)
+        await send_stats_and_sales(message, uid)
 
 
 @router.callback_query(F.data == "demo_positive_from_neg")
@@ -590,7 +645,7 @@ async def cb_pos_from_neg(query: CallbackQuery) -> None:
 @router.callback_query(F.data == "skip_to_stats")
 async def cb_skip_stats(query: CallbackQuery) -> None:
     await query.answer()
-    await send_stats_and_sales(query.message)
+    await send_stats_and_sales(query.message, query.from_user.id)
 
 
 @router.callback_query(F.data.startswith("roi:"))
