@@ -432,7 +432,7 @@ async def cb_rate(query: CallbackQuery) -> None:
         set_step(uid, "demo_negative_text_2")
         await query.message.edit_text(
             "🧪 <i>Демо-режим</i>\n\n"
-            "Опишите проблему одним сообщением (демо для руководителя).",
+            "Что случилось? Опишите в двух словах:",
             parse_mode="HTML",
         )
 
@@ -448,7 +448,8 @@ async def cb_ready_screen(query: CallbackQuery) -> None:
         "У клиента есть возможность отправить скрин только один раз (либо Яндекс.Карты, либо 2ГИС). "
         "Это защищает от злоупотреблений клиентами в получении скидки на посещение салона "
         "и подозрения на накрутку от картографических сервисов. "
-        "Один клиент — один отзыв и никаких проблем с модерацией отзывов на площадке.",
+        "Один клиент — один отзыв и никаких проблем с модерацией отзывов на площадке.\n\n"
+        "Да и не забудьте отправить скриншот, нажав на скрепку 📎",
         parse_mode="HTML",
     )
 
@@ -490,15 +491,28 @@ async def on_photo(message: Message) -> None:
     s = get_session(uid)
     if s["step"] != "demo_wait_screenshot":
         return
-    viewer = get_viewer_chat_id()
+    viewer = get_viewer_chat_id() or (config.ADMIN_IDS[0] if config.ADMIN_IDS else None)
     if not viewer:
+        logger.warning("Скрин от %s, но нет получателя (ADMIN_IDS / ADMIN_GROUP_CHAT_ID пуст)", uid)
         await message.answer(
-            "Скрин получен. Задайте получателя через /set_viewer или ADMIN_GROUP_CHAT_ID в .env.\n\n"
-            f"Промокод (демо): <b>{config.PROMO_CODE}</b>",
+            "⏳ Скрин получен. Ожидайте проверки модератором.",
             parse_mode="HTML",
         )
         await after_positive_done(bot, uid, message.chat.id)
         return
+
+    ds = _get_demo_salon(uid)
+    salon_name = escape_html(ds.get("name", "—"))
+    address = escape_html(ds.get("other", "").replace("адрес: ", ""))
+    ry = ds.get("ratingYandex")
+    r2 = ds.get("rating2gis")
+    ny = ds.get("reviewsYandex")
+    n2 = ds.get("reviews2gis")
+    metrics_parts = []
+    if ry is not None or ny is not None:
+        metrics_parts.append(f"Яндекс: ⭐ {ry or '—'} ({ny or 0} отзывов)")
+    if r2 is not None or n2 is not None:
+        metrics_parts.append(f"2ГИС: ⭐ {r2 or '—'} ({n2 or 0} отзывов)")
 
     sid = secrets.token_hex(6)
     pending_screens[sid] = {
@@ -518,8 +532,13 @@ async def on_photo(message: Message) -> None:
     cap = (
         "📸 <b>Скрин на проверке</b>\n"
         f"Пользователь: @{escape_html(message.from_user.username or '—')} (id {uid})\n"
-        f'Ссылка: <a href="tg://user?id={uid}">открыть диалог</a>'
+        f'Ссылка: <a href="tg://user?id={uid}">открыть диалог</a>\n\n'
+        f"Салон: <b>«{salon_name}»</b>\n"
     )
+    if address:
+        cap += f"📍 {address}\n"
+    if metrics_parts:
+        cap += "📊 " + " | ".join(metrics_parts) + "\n"
     await bot.send_photo(
         viewer,
         file_id,
@@ -601,8 +620,9 @@ async def on_neg_text(message: Message) -> None:
         )
     set_step(uid, "after_negative")
     await message.answer(
-        "Спасибо за обратную связь! Руководитель салона свяжется с вами, чтобы разобраться.\n\n"
-        "<i>В бою вы получаете такое уведомление сразу и отрабатываете до Яндекса.</i>",
+        "Спасибо за отзыв! Руководитель салона свяжется с вами, чтобы разобраться в ситуации.\n\n"
+        "В реальности вы получите такое уведомление сразу, что даёт возможность связаться "
+        "с человеком и отработать негатив до того, как он в сердцах откроет Яндекс.Карты или 2ГИС.",
         parse_mode="HTML",
     )
     if prev_step == "demo_negative_text":
