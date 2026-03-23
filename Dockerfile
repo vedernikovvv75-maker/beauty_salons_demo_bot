@@ -37,5 +37,6 @@ COPY bot /app/bot
 COPY node_scripts /app/node_scripts
 COPY EnvExample /app/EnvExample
 COPY leads.example.json /app/leads.example.json
+COPY barnaul_salons_all.json /app/barnaul_salons_all.json
 
 CMD ["python", "-m", "bot"]
