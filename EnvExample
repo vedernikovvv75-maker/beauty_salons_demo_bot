@@ -6,7 +6,7 @@ HTTPS_PROXY=
 
 # Demo content
 DEMO_OWNER_NAME=Анна
-DEVELOPER_NAME=Александр
+DEVELOPER_NAME=Виталий
 DEMO_SALON_NAME=Салон «Демо»
 MAP_LINK_YANDEX=https://yandex.ru/maps
 MAP_LINK_2GIS=https://2gis.ru
@@ -26,10 +26,10 @@ REQUEST_PAUSE_SEC=1.2
 
 # --- Python-бот: python -m bot ---
 BOT_TOKEN=YOUR_BOT_TOKEN_HERE
-ADMIN_IDS=2128971944
+ADMIN_IDS=YOUR_ADMIN_ID
 # ADMIN_GROUP_CHAT_ID=-1001234567890
 # DEMO_OWNER_NAME=Анна
-# DEVELOPER_NAME=Александр
+# DEVELOPER_NAME=Виталий
 # DEMO_SALON_NAME=Салон «Демо»
 # MAP_LINK_YANDEX=https://yandex.ru/maps/org/...
 # MAP_LINK_2GIS=https://2gis.ru/.../firm/...
