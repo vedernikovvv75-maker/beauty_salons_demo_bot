@@ -19,7 +19,7 @@ ADMIN_GROUP_CHAT_ID: str | None = (
 HTTPS_PROXY = (os.getenv("HTTPS_PROXY") or os.getenv("https_proxy") or "").strip()
 
 DEMO_OWNER_NAME = os.getenv("DEMO_OWNER_NAME", "коллега")
-DEVELOPER_NAME = os.getenv("DEVELOPER_NAME", "Александр")
+DEVELOPER_NAME = os.getenv("DEVELOPER_NAME", "Виталий")
 DEMO_SALON_NAME = os.getenv("DEMO_SALON_NAME", "Демо-салон")
 MAP_LINK_YANDEX = os.getenv("MAP_LINK_YANDEX", "https://yandex.ru/maps")
 MAP_LINK_2GIS = os.getenv("MAP_LINK_2GIS", "https://2gis.ru")

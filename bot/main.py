@@ -167,13 +167,13 @@ async def start_demo_rating(message: Message) -> None:
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="1", callback_data="rate:1"),
-                InlineKeyboardButton(text="2", callback_data="rate:2"),
-                InlineKeyboardButton(text="3", callback_data="rate:3"),
+                InlineKeyboardButton(text="⭐", callback_data="rate:1"),
+                InlineKeyboardButton(text="⭐⭐", callback_data="rate:2"),
+                InlineKeyboardButton(text="⭐⭐⭐", callback_data="rate:3"),
             ],
             [
-                InlineKeyboardButton(text="4", callback_data="rate:4"),
-                InlineKeyboardButton(text="5", callback_data="rate:5"),
+                InlineKeyboardButton(text="⭐⭐⭐⭐", callback_data="rate:4"),
+                InlineKeyboardButton(text="⭐⭐⭐⭐⭐", callback_data="rate:5"),
             ],
         ]
     )
@@ -331,15 +331,15 @@ async def cb_demo_neg_next(query: CallbackQuery) -> None:
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="1", callback_data="rate:1"),
-                InlineKeyboardButton(text="2", callback_data="rate:2"),
-                InlineKeyboardButton(text="3", callback_data="rate:3"),
+                InlineKeyboardButton(text="⭐", callback_data="rate:1"),
+                InlineKeyboardButton(text="⭐⭐", callback_data="rate:2"),
+                InlineKeyboardButton(text="⭐⭐⭐", callback_data="rate:3"),
             ],
         ]
     )
     await query.message.answer(
         "🧪 <i>Демо-режим — негатив</i>\n\n"
-        "<b>Оцените услугу от 1 до 3</b> (недовольный клиент):",
+        "<b>Оцените услугу от ⭐ до ⭐⭐⭐</b> (недовольный клиент):",
         parse_mode="HTML",
         reply_markup=kb,
     )
