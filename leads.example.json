@@ -1,0 +1,13 @@
+{
+  "leads": [
+    {
+      "telegram_chat_id": 123456789,
+      "owner_name": "Иван",
+      "salon_name": "Салон красоты «Атмосфера»",
+      "url2gis": "https://2gis.ru/barnaul/firm/70000001066134279",
+      "urlYandex": "https://yandex.ru/maps/org/example/123/",
+      "sent": false,
+      "sent_at": null
+    }
+  ]
+}

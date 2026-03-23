@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+node_modules
+node_scripts/node_modules
+.env
+leads.json
+applications.json
+*.log

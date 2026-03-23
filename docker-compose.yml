@@ -1,0 +1,13 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: beauty-salons-bot:latest
+    container_name: beauty-salons-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./leads.json:/app/leads.json
+      - ./applications.json:/app/applications.json
