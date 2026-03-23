@@ -64,6 +64,7 @@ def _load_hot_salons() -> list[dict]:
     return result
 
 
+
 def pick_demo_salon() -> dict | None:
     if not _hot_salons:
         return None
@@ -267,11 +268,14 @@ def _assign_demo_salon(uid: int) -> None:
 
 
 def _get_demo_salon(uid: int) -> dict:
-    return get_session(uid).get("demo_salon") or {
+    ds = get_session(uid).get("demo_salon") or {
         "name": config.DEMO_SALON_NAME,
         "url2gis": config.MAP_LINK_2GIS,
         "urlYandex": config.MAP_LINK_YANDEX,
+        "url2gisReviews": config.MAP_LINK_2GIS,
+        "urlYandexReviews": config.MAP_LINK_YANDEX,
     }
+    return ds
 
 
 @router.message(F.text.casefold() == "запустить демо")
@@ -334,8 +338,8 @@ async def cb_rate(query: CallbackQuery) -> None:
             ds = _get_demo_salon(uid)
             kb = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="Отзыв на Яндекс.Картах", url=ds["urlYandex"])],
-                    [InlineKeyboardButton(text="Отзыв на 2ГИС", url=ds["url2gis"])],
+                    [InlineKeyboardButton(text="Отзыв на Яндекс.Картах", url=ds["urlYandexReviews"])],
+                    [InlineKeyboardButton(text="Отзыв на 2ГИС", url=ds["url2gisReviews"])],
                     [InlineKeyboardButton(text="Готов отправить скрин", callback_data="ready_screen")],
                 ]
             )
@@ -570,8 +574,8 @@ async def cb_pos_from_neg(query: CallbackQuery) -> None:
     ds = _get_demo_salon(uid)
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Яндекс.Карты", url=ds["urlYandex"])],
-            [InlineKeyboardButton(text="2ГИС", url=ds["url2gis"])],
+            [InlineKeyboardButton(text="Яндекс.Карты", url=ds["urlYandexReviews"])],
+            [InlineKeyboardButton(text="2ГИС", url=ds["url2gisReviews"])],
             [InlineKeyboardButton(text="Готов отправить скрин", callback_data="ready_screen")],
         ]
     )
