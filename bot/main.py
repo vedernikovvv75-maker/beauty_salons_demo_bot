@@ -19,7 +19,6 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.filters import BaseFilter, Command
 from aiogram.types import (
     CallbackQuery,
-    Chat,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -166,7 +165,13 @@ def welcome_text() -> str:
     )
 
 
-async def send_stats_and_sales(message: Message, uid: int | None = None) -> None:
+async def send_stats_and_sales(message_or_bot, uid: int | None = None, chat_id: int | None = None) -> None:
+    if isinstance(message_or_bot, Message):
+        bot = message_or_bot.bot
+        chat_id = message_or_bot.chat.id
+    else:
+        bot = message_or_bot
+
     if uid:
         activity_log.log_event(uid, "stats_viewed")
     ds = _get_demo_salon(uid) if uid else {}
@@ -190,7 +195,8 @@ async def send_stats_and_sales(message: Message, uid: int | None = None) -> None
             + "\n"
         )
 
-    await message.answer(
+    await bot.send_message(
+        chat_id,
         "🖥️ <b>Как это выглядит для руководителя</b>\n\n"
         "Это был один проход. В реальности всё стекается в таблицу.\n\n"
         "Пример «панели» за месяц (демо-цифры):\n"
@@ -206,11 +212,17 @@ async def send_stats_and_sales(message: Message, uid: int | None = None) -> None
         "Дальше — выгода и форматы сотрудничества.",
         parse_mode="HTML",
     )
-    await send_roi_block(message)
+    await send_roi_block(bot, chat_id, uid)
 
 
-async def send_roi_block(message: Message) -> None:
-    set_step(message.from_user.id, "sales_roi")
+async def send_roi_block(bot_or_msg, chat_id: int | None = None, uid: int | None = None) -> None:
+    if isinstance(bot_or_msg, Message):
+        bot = bot_or_msg.bot
+        chat_id = bot_or_msg.chat.id
+        uid = uid or bot_or_msg.from_user.id
+    else:
+        bot = bot_or_msg
+    set_step(uid, "sales_roi")
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -220,7 +232,8 @@ async def send_roi_block(message: Message) -> None:
             [InlineKeyboardButton(text="Более 150", callback_data="roi:more")],
         ]
     )
-    await message.answer(
+    await bot.send_message(
+        chat_id,
         "💰 <b>Посчитаем выгоду для вашего салона</b>\n\n"
         "Сколько клиентов в среднем у вас в месяц?",
         parse_mode="HTML",
@@ -252,7 +265,7 @@ async def send_cta_block(message: Message) -> None:
             [InlineKeyboardButton(text="🔍 Заказать бесплатный аудит салона", callback_data="cta:audit")],
             [
                 InlineKeyboardButton(
-                    text="🚀 Получить запись на настройку за 50%",
+                    text="🚀 Получить «Старт» за 50%",
                     callback_data="cta:setup",
                 )
             ],
@@ -260,23 +273,22 @@ async def send_cta_block(message: Message) -> None:
     )
     await message.answer(
         "🎁 <b>Что дальше</b>\n\n"
-        "Для салонов важен живой контакт. Выберите шаг — отвечу лично.\n"
-        "Телефон можно отправить кнопкой ниже.",
+        "🔍 <b>«Заказать бесплатный аудит салона»</b> — бесплатное предложение. "
+        "Я как разработчик смотрю текущие показатели салона на картах "
+        "(отзывы, рейтинг, конкурентов) и даю владельцу краткий отчёт с рекомендациями. "
+        "Это не обязывает вас к заказу.\n\n"
+        "🚀 <b>«Получить «Старт» за 50%»</b> — коммерческое предложение со скидкой. "
+        "Вы записываетесь на настройку бота по тарифу «Старт» за полцены — 5 000 ₽ вместо 10 000 ₽.",
         parse_mode="HTML",
         reply_markup=kb,
     )
     contact_kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="Оставить телефон", request_contact=True)]],
+        keyboard=[[KeyboardButton(text="📞 Оставить телефон", request_contact=True)]],
         resize_keyboard=True,
         one_time_keyboard=True,
     )
     await message.answer(
-        "🔍 <b>«Заказать бесплатный аудит салона»</b> — бесплатное предложение. "
-        "Я как разработчик смотрю текущие показатели салона на картах "
-        "(отзывы, рейтинг, конкурентов) и даю владельцу краткий отчёт с рекомендациями. "
-        "Это не обязывает к покупке.\n\n"
-        "🚀 <b>«Получить запись на настройку за 50%»</b> — коммерческое предложение со скидкой. "
-        "Вы записываетесь на настройку бота для своего салона за полцены.",
+        "📞 Или просто оставьте телефон — перезвоню в удобное время.",
         parse_mode="HTML",
         reply_markup=contact_kb,
     )
@@ -308,12 +320,7 @@ async def after_positive_done(bot: Bot, user_id: int, chat_id: int) -> None:
     s["done_positive"] = True
     if s.get("done_negative"):
         set_step(user_id, "after_negative")
-        msg = Message(
-            message_id=0, date=datetime.now(timezone.utc),
-            chat=Chat(id=chat_id, type="private"),
-        )
-        msg.set_bot(bot)
-        await send_stats_and_sales(msg, user_id)
+        await send_stats_and_sales(bot, uid=user_id, chat_id=chat_id)
         return
     set_step(user_id, "after_positive")
     kb = InlineKeyboardMarkup(
@@ -815,6 +822,13 @@ async def cb_start_demo(query: CallbackQuery) -> None:
     await start_demo_rating(query.message)
 
 
+@router.callback_query(F.data == "skip_screen_resubmit")
+async def cb_skip_screen_resubmit(query: CallbackQuery) -> None:
+    await query.answer()
+    uid = query.from_user.id
+    await after_positive_done(query.bot, uid, query.message.chat.id)
+
+
 @router.callback_query(F.data == "demo_negative_next")
 async def cb_demo_neg_next(query: CallbackQuery) -> None:
     await query.answer()
@@ -884,7 +898,7 @@ async def on_photo(message: Message) -> None:
     )
     cap = (
         "📸 <b>Скрин на проверке</b>\n"
-        f"Пользователь: @{escape_html(message.from_user.username or '—')} (id {uid})\n"
+        f"Пользователь: @{escape_html(message.from_user.username or '—')}\n"
         f'Ссылка: <a href="tg://user?id={uid}">открыть диалог</a>\n\n'
         f"Салон: <b>«{salon_name}»</b>\n"
     )
@@ -938,9 +952,20 @@ async def cb_screen_moderate(query: CallbackQuery) -> None:
                 parse_mode="HTML",
             )
         else:
+            set_step(uid, "demo_wait_screenshot")
+            reject_kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="📎 Отправить другой скрин", callback_data="ready_screen")],
+                    [InlineKeyboardButton(text="Продолжить демо ➡️", callback_data="skip_screen_resubmit")],
+                ]
+            )
             await bot.send_message(
                 chat_id,
-                "Скрин не прошёл проверку. Напишите администратору салона — уточним детали.",
+                "Скрин не прошёл проверку.\n\n"
+                "<i>В реальности клиент может отправить новый скриншот — "
+                "администратор увидит его повторно на модерации.</i>",
+                parse_mode="HTML",
+                reply_markup=reject_kb,
             )
     except Exception as e:
         logger.exception(e)
@@ -950,7 +975,8 @@ async def cb_screen_moderate(query: CallbackQuery) -> None:
         caption=prev + f"\n\n<b>{'Одобрено' if ok else 'Отклонено'}</b> админом",
         parse_mode="HTML",
     )
-    await after_positive_done(bot, uid, chat_id)
+    if ok:
+        await after_positive_done(bot, uid, chat_id)
 
 
 @router.message(DemoNegativeTextFilter(), F.text)
@@ -967,9 +993,9 @@ async def on_neg_text(message: Message) -> None:
         await bot.send_message(
             viewer,
             "🚨 <b>Негативный отзыв (демо)</b>\n"
-            f"От: @{escape_html(message.from_user.username or '—')} / id {uid}\n"
+            f"От: @{escape_html(message.from_user.username or '—')}\n"
             f"Текст: {escape_html(t)}\n"
-            f'Диалог: <a href="tg://user?id={uid}">tg://user?id={uid}</a>',
+            f'Диалог: <a href="tg://user?id={uid}">открыть диалог</a>',
             parse_mode="HTML",
         )
     s = get_session(uid)
@@ -1077,8 +1103,11 @@ async def cb_pkg(query: CallbackQuery) -> None:
     else:
         text = (
             "🛡 <b>Безопасность</b> — +5 000 ₽ к пакету\n\n"
-            "• Модуль отработки негатива\n"
-            "• Автосбор жалоб и уведомление старшему мастеру"
+            "• <b>Реестр жалоб</b> — все негативы собираются в таблицу, "
+            "а не просто сообщением в чат, которое потеряется в потоке\n"
+            "• <b>Уведомление старшему мастеру</b> — потребуется настройка: "
+            "кто «старший мастер», возможно несколько мастеров для разных филиалов\n"
+            "• <b>Повторные напоминания</b> — если жалоба не отработана в срок"
         )
     await query.message.answer(
         text + payment + "\n\nНапишите, если нужно сузить под ваш процесс.",
