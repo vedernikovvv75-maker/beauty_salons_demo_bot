@@ -74,3 +74,16 @@ def has_action(action: str) -> list[tuple[str, dict]]:
         if any(e["action"] == action for e in u.get("events", [])):
             result.append((uid_str, u))
     return result
+
+
+def get_sent_salon_ids() -> set[str]:
+    data = _load()
+    return set(data.get("sent_salon_ids", []))
+
+
+def mark_salon_sent(salon_id: str) -> None:
+    data = _load()
+    sent = set(data.get("sent_salon_ids", []))
+    sent.add(salon_id)
+    data["sent_salon_ids"] = sorted(sent)
+    _save(data)
