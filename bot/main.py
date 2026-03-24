@@ -12,7 +12,7 @@ import logging
 import random
 import secrets
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -28,7 +28,7 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 
-from . import config
+from . import activity_log, config
 from .leads_store import append_application, load_leads, save_leads
 from .promo_copy import build_promo_message, escape_html
 from .salon_metrics import fetch_salon_metrics_fresh
@@ -141,6 +141,8 @@ def welcome_text() -> str:
 
 
 async def send_stats_and_sales(message: Message, uid: int | None = None) -> None:
+    if uid:
+        activity_log.log_event(uid, "stats_viewed")
     ds = _get_demo_salon(uid) if uid else {}
     salon_name = escape_html(ds.get("name", "ваш салон"))
 
@@ -164,7 +166,7 @@ async def send_stats_and_sales(message: Message, uid: int | None = None) -> None
 
     await message.answer(
         "🖥️ <b>Как это выглядит для руководителя</b>\n\n"
-        "Это был один проход. В реальности всё стекается в Telegram-группу и таблицу.\n\n"
+        "Это был один проход. В реальности всё стекается в таблицу.\n\n"
         "Пример «панели» за месяц (демо-цифры):\n"
         "✅ Положительных оценок (4–5): <b>82%</b>\n"
         "📝 Скринов на проверке: <b>3</b>\n"
@@ -268,7 +270,7 @@ async def start_demo_rating(message: Message) -> None:
     await message.answer(
         "🧪 <i>Демо-режим</i>\n\n"
         "Представьте, что клиент только что вышел от мастера.\n\n"
-        "Дважды «тапните» на крайнюю звезду.\n\n"
+        "Дважды «тапните» на крайнюю звезду, как будто вы клиент.\n\n"
         "<b>Оцените качество услуги:</b>",
         parse_mode="HTML",
         reply_markup=kb,
@@ -303,7 +305,9 @@ async def after_positive_done(bot: Bot, user_id: int, chat_id: int) -> None:
 
 @router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
-    set_step(message.from_user.id, "idle")
+    u = message.from_user
+    activity_log.log_event(u.id, "start", username=u.username, first_name=u.first_name)
+    set_step(u.id, "idle")
     rk = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="Запустить демо")]],
         resize_keyboard=True,
@@ -340,7 +344,9 @@ def _get_demo_salon(uid: int) -> dict:
 
 @router.message(F.text.casefold() == "запустить демо")
 async def hears_demo(message: Message) -> None:
-    _assign_demo_salon(message.from_user.id)
+    u = message.from_user
+    activity_log.log_event(u.id, "demo_started", username=u.username, first_name=u.first_name)
+    _assign_demo_salon(u.id)
     await start_demo_rating(message)
 
 
@@ -380,10 +386,109 @@ async def cmd_set_viewer(message: Message) -> None:
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     admin = is_admin(message.from_user.id)
-    extra = "/send_promo — рассылка\n/set_viewer — куда шлём модерацию\n" if admin else ""
+    extra = "/send_promo — рассылка\n/set_viewer — куда шлём модерацию\n/adm — трекер лидов\n" if admin else ""
     await message.answer(
         f"Команды:\n/start — сначала\n{extra}\nДемо показывает путь клиента и уведомления админам."
     )
+
+
+_ACTION_LABELS = {
+    "start": "/start",
+    "demo_started": "демо",
+    "rated": "оценка",
+    "screenshot_sent": "скрин",
+    "screenshot_approved": "одобрен",
+    "screenshot_rejected": "отклонён",
+    "negative_text": "негатив",
+    "stats_viewed": "статистика",
+    "cta_audit": "CTA аудит",
+    "cta_setup": "CTA настройка",
+    "phone_shared": "телефон",
+}
+
+
+def _relative_time(iso_ts: str) -> str:
+    try:
+        dt = datetime.fromisoformat(iso_ts)
+        delta = datetime.now(timezone.utc) - dt
+        mins = int(delta.total_seconds() // 60)
+        if mins < 1:
+            return "только что"
+        if mins < 60:
+            return f"{mins}мин назад"
+        hours = mins // 60
+        if hours < 24:
+            return f"{hours}ч назад"
+        days = hours // 24
+        return f"{days}д назад"
+    except Exception:
+        return iso_ts
+
+
+def _fmt_time_short(iso_ts: str) -> str:
+    try:
+        dt = datetime.fromisoformat(iso_ts)
+        msk_dt = dt.astimezone(timezone(timedelta(hours=3)))
+        return msk_dt.strftime("%H:%M")
+    except Exception:
+        return "?"
+
+
+@router.message(Command("adm"))
+async def cmd_adm(message: Message) -> None:
+    if not is_admin(message.from_user.id):
+        await message.answer("Команда только для администраторов.")
+        return
+    full_mode = "--full" in (message.text or "")
+    users = activity_log.get_all_users()
+    if not users:
+        await message.answer("Лид-трекер пуст. Пока никто не взаимодействовал с ботом.")
+        return
+
+    lines = ["<b>--- Лид-трекер ---</b>\n"]
+    for uid_str, u in users.items():
+        uname = u.get("username")
+        fname = u.get("first_name") or ""
+        header = f"@{escape_html(uname)}" if uname else escape_html(fname) or uid_str
+        header += f" (id {uid_str})"
+        events = u.get("events", [])
+        if not events:
+            lines.append(f"{header}\n  нет действий\n")
+            continue
+
+        if full_mode:
+            lines.append(header)
+            for ev in events:
+                label = _ACTION_LABELS.get(ev["action"], ev["action"])
+                t = _fmt_time_short(ev["ts"])
+                detail = f' "{ev["detail"]}"' if ev.get("detail") else ""
+                lines.append(f"  {t} {label}{detail}")
+        else:
+            milestones = []
+            for ev in events:
+                label = _ACTION_LABELS.get(ev["action"], ev["action"])
+                t = _fmt_time_short(ev["ts"])
+                detail = f" {ev['detail']}" if ev.get("detail") and ev["action"] == "rated" else ""
+                milestones.append(f"{label}{detail} {t}")
+            lines.append(header)
+            lines.append("  " + " | ".join(milestones))
+
+        has_setup = any(e["action"] == "cta_setup" for e in events)
+        has_audit = any(e["action"] == "cta_audit" for e in events)
+        if has_setup:
+            lines.append("  <b>ЗАЯВКА НА НАСТРОЙКУ</b>")
+        elif has_audit:
+            lines.append("  заявка на аудит")
+
+        last_ts = events[-1]["ts"]
+        lines.append(f"  Последнее действие: {_relative_time(last_ts)}\n")
+
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        for i in range(0, len(text), 4000):
+            await message.answer(text[i:i+4000], parse_mode="HTML")
+    else:
+        await message.answer(text, parse_mode="HTML")
 
 
 def _stars_kb(selected: int) -> InlineKeyboardMarkup:
@@ -412,6 +517,7 @@ async def cb_rate(query: CallbackQuery) -> None:
         return
 
     s.pop("_rate_confirmed", None)
+    activity_log.log_event(uid, "rated", username=query.from_user.username, detail=str(n))
 
     if s["step"] == "demo_rating":
         if n >= 4:
@@ -487,7 +593,9 @@ async def cb_start_demo(query: CallbackQuery) -> None:
     await query.answer()
     if not query.message:
         return
-    _assign_demo_salon(query.from_user.id)
+    u = query.from_user
+    activity_log.log_event(u.id, "demo_started", username=u.username, first_name=u.first_name)
+    _assign_demo_salon(u.id)
     await start_demo_rating(query.message)
 
 
@@ -519,6 +627,7 @@ async def on_photo(message: Message) -> None:
     s = get_session(uid)
     if s["step"] != "demo_wait_screenshot":
         return
+    activity_log.log_event(uid, "screenshot_sent", username=message.from_user.username)
     viewer = get_viewer_chat_id() or (config.ADMIN_IDS[0] if config.ADMIN_IDS else None)
     if not viewer:
         logger.warning("Скрин от %s, но нет получателя (ADMIN_IDS / ADMIN_GROUP_CHAT_ID пуст)", uid)
@@ -602,6 +711,7 @@ async def cb_screen_moderate(query: CallbackQuery) -> None:
 
     uid = p["userId"]
     chat_id = p["chatId"]
+    activity_log.log_event(uid, "screenshot_approved" if ok else "screenshot_rejected")
     try:
         if ok:
             await bot.send_message(
@@ -634,6 +744,7 @@ async def on_neg_text(message: Message) -> None:
         return
     uid = message.from_user.id
     t = (message.text or "").strip()
+    activity_log.log_event(uid, "negative_text", username=message.from_user.username, detail=t[:120])
     prev_step = get_session(uid)["step"]
     viewer = get_viewer_chat_id()
     if viewer:
@@ -755,11 +866,14 @@ async def cb_pkg(query: CallbackQuery) -> None:
 async def cb_cta(query: CallbackQuery) -> None:
     await query.answer()
     kind = query.data.split(":")[1]
+    action = "cta_audit" if kind == "audit" else "cta_setup"
+    u = query.from_user
+    activity_log.log_event(u.id, action, username=u.username, first_name=u.first_name)
     append_application(
         config.APPLICATIONS_JSON,
         {
-            "userId": query.from_user.id,
-            "username": query.from_user.username,
+            "userId": u.id,
+            "username": u.username,
             "kind": "audit" if kind == "audit" else "setup",
         },
     )
@@ -773,6 +887,8 @@ async def cb_cta(query: CallbackQuery) -> None:
 
 @router.message(F.contact)
 async def on_contact(message: Message) -> None:
+    u = message.from_user
+    activity_log.log_event(u.id, "phone_shared", username=u.username, first_name=u.first_name)
     c = message.contact
     append_application(
         config.APPLICATIONS_JSON,
@@ -853,9 +969,56 @@ async def cmd_send_promo(message: Message) -> None:
     await message.answer("Готово.")
 
 
+async def _daily_reminder(bot: Bot) -> None:
+    MSK = timezone(timedelta(hours=3))
+    TARGET_HOUR = 6
+
+    while True:
+        now_msk = datetime.now(MSK)
+        next_run = now_msk.replace(hour=TARGET_HOUR, minute=0, second=0, microsecond=0)
+        if next_run <= now_msk:
+            next_run += timedelta(days=1)
+        wait_sec = (next_run - now_msk).total_seconds()
+        logger.info("Reminder: next fire in %.0f sec (%s MSK)", wait_sec, next_run.strftime("%Y-%m-%d %H:%M"))
+        await asyncio.sleep(wait_sec)
+
+        if not config.ADMIN_IDS:
+            continue
+        admin_id = config.ADMIN_IDS[0]
+
+        setup_leads = activity_log.has_action("cta_setup")
+        users = activity_log.get_all_users()
+        total = len(users)
+        demos = sum(
+            1 for u in users.values()
+            if any(e["action"] == "demo_started" for e in u.get("events", []))
+        )
+
+        if setup_leads:
+            names = ", ".join(
+                f"@{u.get('username', '?')}" for _, u in setup_leads
+            )
+            text = (
+                f"6:00 МСК — есть заявка на настройку от {names}!\n"
+                "Подробности: /adm"
+            )
+        else:
+            text = (
+                "6:00 МСК — напоминание.\n"
+                "Заявок на настройку пока нет.\n"
+                f"Лидов в трекере: {total} (из них прошли демо: {demos}).\n"
+                "Запустите /send_promo для следующей рассылки."
+            )
+        try:
+            await bot.send_message(admin_id, text)
+        except Exception as e:
+            logger.exception("Reminder send failed: %s", e)
+
+
 async def main() -> None:
     global _hot_salons
     _hot_salons = _load_hot_salons()
+    activity_log.init(config.ACTIVITY_LOG_JSON)
     if not config.BOT_TOKEN:
         print("Задайте BOT_TOKEN в .env", file=sys.stderr)
         sys.exit(1)
@@ -874,6 +1037,7 @@ async def main() -> None:
     bot = Bot(token=config.BOT_TOKEN, session=session)
     dp = Dispatcher()
     dp.include_router(router)
+    asyncio.create_task(_daily_reminder(bot))
     logger.info("Бот запущен (Python)")
     await dp.start_polling(bot)
 
