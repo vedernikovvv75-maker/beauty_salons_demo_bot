@@ -208,10 +208,10 @@ async def send_cta_block(message: Message) -> None:
     set_step(message.from_user.id, "sales_cta")
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Заказать бесплатный аудит салона", callback_data="cta:audit")],
+            [InlineKeyboardButton(text="🔍 Заказать бесплатный аудит салона", callback_data="cta:audit")],
             [
                 InlineKeyboardButton(
-                    text="Получить запись на настройку за 50%",
+                    text="🚀 Получить запись на настройку за 50%",
                     callback_data="cta:setup",
                 )
             ],
@@ -230,7 +230,13 @@ async def send_cta_block(message: Message) -> None:
         one_time_keyboard=True,
     )
     await message.answer(
-        "Мой номер не нужен — нажмите кнопку, чтобы поделиться своим:",
+        "🔍 <b>«Заказать бесплатный аудит салона»</b> — бесплатное предложение. "
+        "Я как разработчик смотрю текущие показатели салона на картах "
+        "(отзывы, рейтинг, конкурентов) и даю владельцу краткий отчёт с рекомендациями. "
+        "Это не обязывает к покупке.\n\n"
+        "🚀 <b>«Получить запись на настройку за 50%»</b> — коммерческое предложение со скидкой. "
+        "Вы записываетесь на настройку бота для своего салона за полцены.",
+        parse_mode="HTML",
         reply_markup=contact_kb,
     )
 
@@ -622,7 +628,8 @@ async def on_neg_text(message: Message) -> None:
     await message.answer(
         "Спасибо за отзыв! Руководитель салона свяжется с вами, чтобы разобраться в ситуации.\n\n"
         "В реальности вы получите такое уведомление сразу, что даёт возможность связаться "
-        "с человеком и отработать негатив до того, как он в сердцах откроет Яндекс.Карты или 2ГИС.",
+        "с вашим клиентом и отработать негатив до того, как он в сердцах откроет "
+        "Яндекс.Карты или 2ГИС, чтобы оставить там свой отзыв.",
         parse_mode="HTML",
     )
     if prev_step == "demo_negative_text":
