@@ -78,15 +78,18 @@ def _load_hot_salons() -> list[dict]:
 
 
 
-def _categorize_salons() -> dict[str, list[dict]]:
+def _categorize_salons(exclude_sent: bool = True) -> dict[str, list[dict]]:
     src = Path(__file__).resolve().parent.parent / "barnaul_salons_all.json"
     if not src.exists():
         return {"hot": [], "warm": [], "cold": []}
     with open(src, encoding="utf-8") as f:
         data = json.load(f)
+    sent_ids = activity_log.get_sent_salon_ids() if exclude_sent else set()
     hot, warm, cold = [], [], []
     for s in data.get("salons", []):
         if not s.get("telegram"):
+            continue
+        if s.get("id") in sent_ids:
             continue
         ry = s.get("reviewsYandex")
         r2 = s.get("reviews2gis")
@@ -534,7 +537,9 @@ async def cb_adm_broadcast(query: CallbackQuery) -> None:
         await query.answer("Нет доступа", show_alert=True)
         return
     await query.answer()
-    cats = _categorize_salons()
+    cats = _categorize_salons(exclude_sent=True)
+    total_sent = len(activity_log.get_sent_salon_ids())
+    total_remaining = len(cats["hot"]) + len(cats["warm"]) + len(cats["cold"])
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text=f"🔴 Горячие ({len(cats['hot'])})",
@@ -551,6 +556,7 @@ async def cb_adm_broadcast(query: CallbackQuery) -> None:
     ])
     await query.message.answer(
         "<b>Рассылка — выберите категорию лидов</b>\n\n"
+        f"📊 Отправлено: <b>{total_sent}</b> | Осталось: <b>{total_remaining}</b>\n\n"
         "🔴 <b>Горячие</b> — мало отзывов (любой показатель &lt; 20)\n"
         "🟡 <b>Тёплые</b> — от 20 до 50 отзывов\n"
         "🔵 <b>Холодные</b> — более 50 отзывов",
@@ -640,6 +646,7 @@ async def cb_adm_send(query: CallbackQuery) -> None:
     salon = queue[idx]
     tg = salon.get("telegram", "")
     name = salon.get("name", "?")
+    salon_id = salon.get("id", "")
 
     metrics = {
         "ratingYandex": salon.get("ratingYandex"),
@@ -650,24 +657,24 @@ async def cb_adm_send(query: CallbackQuery) -> None:
     promo_text = build_promo_message(metrics, None, name)
 
     await query.message.answer(
-        f"📨 <b>Промо-сообщение для «{escape_html(name)}»:</b>\n\n"
+        f"📨 <b>Промо для «{escape_html(name)}»:</b>\n\n"
         f"{promo_text}\n\n"
         "---\n"
-        f"📱 Отправьте вручную по ссылке: {escape_html(tg)}\n"
-        "Скопируйте текст выше и отправьте в Telegram этому контакту.",
-        parse_mode="HTML",
-    )
-    await query.message.answer(
-        f"✅ Промо для «{escape_html(name)}» подготовлено.",
+        f"📱 Отправьте вручную: {escape_html(tg)}",
         parse_mode="HTML",
     )
 
-    next_idx = idx + 1
-    if next_idx < len(queue):
-        s["adm_idx"] = next_idx
-        await _show_salon_card(query.bot, query.message.chat.id, queue[next_idx], next_idx, len(queue))
-    else:
-        await query.message.answer("Список этой категории завершён.")
+    if salon_id:
+        activity_log.mark_salon_sent(salon_id)
+    total_sent = len(activity_log.get_sent_salon_ids())
+    cats = _categorize_salons(exclude_sent=True)
+    remaining = len(cats["hot"]) + len(cats["warm"]) + len(cats["cold"])
+    await query.message.answer(
+        f"✅ Бот отправлен «{escape_html(name)}».\n\n"
+        f"📊 Всего отправлено: <b>{total_sent}</b> | Осталось: <b>{remaining}</b>\n"
+        f"   🔴 горячих: {len(cats['hot'])} | 🟡 тёплых: {len(cats['warm'])} | 🔵 холодных: {len(cats['cold'])}",
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data.startswith("adm:skip:"))
