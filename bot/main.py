@@ -35,6 +35,18 @@ from .salon_metrics import fetch_salon_metrics_fresh
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def _plural(n: int, one: str, few: str, many: str) -> str:
+    n_abs = abs(n)
+    if 11 <= n_abs % 100 <= 19:
+        return f"{n} {many}"
+    mod10 = n_abs % 10
+    if mod10 == 1:
+        return f"{n} {one}"
+    if 2 <= mod10 <= 4:
+        return f"{n} {few}"
+    return f"{n} {many}"
+
 router = Router()
 
 sessions: dict[int, dict] = {}
@@ -255,6 +267,7 @@ async def start_demo_rating(message: Message) -> None:
     await message.answer(
         "🧪 <i>Демо-режим</i>\n\n"
         "Представьте, что клиент только что вышел от мастера.\n\n"
+        "Дважды «тапните» на крайнюю звезду.\n\n"
         "<b>Оцените качество услуги:</b>",
         parse_mode="HTML",
         reply_markup=kb,
@@ -404,9 +417,9 @@ async def cb_rate(query: CallbackQuery) -> None:
             n2 = ds.get("reviews2gis")
             parts = []
             if ry is not None or ny is not None:
-                parts.append(f"Яндекс: ⭐ {ry or '—'} ({ny or 0} отзывов)")
+                parts.append(f"Яндекс: ⭐ {ry or '—'} ({_plural(ny or 0, 'отзыв', 'отзыва', 'отзывов')})")
             if r2 is not None or n2 is not None:
-                parts.append(f"2ГИС: ⭐ {r2 or '—'} ({n2 or 0} отзывов)")
+                parts.append(f"2ГИС: ⭐ {r2 or '—'} ({_plural(n2 or 0, 'отзыв', 'отзыва', 'отзывов')})")
             if parts:
                 metrics_line = "\n📊 " + " | ".join(parts) + "\n"
             await query.message.edit_text(
@@ -423,7 +436,7 @@ async def cb_rate(query: CallbackQuery) -> None:
             await query.message.edit_text(
                 "🧪 <i>Демо-режим</i>\n\n"
                 "Нам жаль, что впечатление смазалось. Напишите одним сообщением, что пошло не так — "
-                "в реальном боте это уйдёт руководителю, чтобы отработать ситуацию до публичного отзыва.",
+                "в реальном боте это уйдёт руководителю, чтобы разобраться в ситуации.",
                 parse_mode="HTML",
             )
         return
@@ -449,13 +462,13 @@ async def cb_ready_screen(query: CallbackQuery) -> None:
     set_step(query.from_user.id, "demo_wait_screenshot")
     await query.message.answer(
         "Отправьте скриншот отзыва в этот чат. Вы можете отправить любое фото — покажу модерацию.\n\n"
-        "В реальности, когда человек отправит недействительный скриншот, вы его отклоните "
+        "<i>В реальности, когда человек отправит недействительный скриншот, вы его отклоните "
         "и пользователь в боте получит соответствующее сообщение. Это контролирует получение скидок.\n\n"
         "У клиента есть возможность отправить скрин только один раз (либо Яндекс.Карты, либо 2ГИС). "
         "Это защищает от злоупотреблений клиентами в получении скидки на посещение салона "
         "и подозрения на накрутку от картографических сервисов. "
         "Один клиент — один отзыв и никаких проблем с модерацией отзывов на площадке.\n\n"
-        "Да и не забудьте отправить скриншот, нажав на скрепку 📎",
+        "Да, и не забудьте отправить скриншот, нажав на скрепку </i>📎",
         parse_mode="HTML",
     )
 
@@ -516,9 +529,9 @@ async def on_photo(message: Message) -> None:
     n2 = ds.get("reviews2gis")
     metrics_parts = []
     if ry is not None or ny is not None:
-        metrics_parts.append(f"Яндекс: ⭐ {ry or '—'} ({ny or 0} отзывов)")
+        metrics_parts.append(f"Яндекс: ⭐ {ry or '—'} ({_plural(ny or 0, 'отзыв', 'отзыва', 'отзывов')})")
     if r2 is not None or n2 is not None:
-        metrics_parts.append(f"2ГИС: ⭐ {r2 or '—'} ({n2 or 0} отзывов)")
+        metrics_parts.append(f"2ГИС: ⭐ {r2 or '—'} ({_plural(n2 or 0, 'отзыв', 'отзыва', 'отзывов')})")
 
     sid = secrets.token_hex(6)
     pending_screens[sid] = {
@@ -554,7 +567,7 @@ async def on_photo(message: Message) -> None:
     )
     await message.answer(
         "⏳ Скрин получен. Администратор проверит и подтвердит выдачу скидки.\n\n"
-        "<i>В бою вы получаете уведомление в Telegram и жмёте одну кнопку — без накруток.</i>",
+        "<i>В реальности вы получаете уведомление в Telegram и жмёте одну кнопку, да или нет, чтобы подтвердить или отклонить скрин — без накруток.</i>",
         parse_mode="HTML",
     )
 
@@ -602,8 +615,7 @@ async def cb_screen_moderate(query: CallbackQuery) -> None:
         caption=prev + f"\n\n<b>{'Одобрено' if ok else 'Отклонено'}</b> админом",
         parse_mode="HTML",
     )
-    if ok:
-        await after_positive_done(bot, uid, chat_id)
+    await after_positive_done(bot, uid, chat_id)
 
 
 @router.message(DemoNegativeTextFilter(), F.text)
@@ -627,10 +639,11 @@ async def on_neg_text(message: Message) -> None:
     set_step(uid, "after_negative")
     await message.answer(
         "Спасибо за отзыв! Руководитель салона свяжется с вами, чтобы разобраться в ситуации.\n\n"
-        "В реальности вы получите такое уведомление сразу, что даёт возможность связаться "
+        "<i>В реальности вы получите такое уведомление сразу, что даёт возможность связаться "
         "с вашим клиентом и отработать негатив до того, как он в сердцах откроет "
-        "Яндекс.Карты или 2ГИС, чтобы оставить там свой отзыв.",
+        "Яндекс.Карты или 2ГИС, чтобы оставить там свой отзыв.</i>",
         parse_mode="HTML",
+        reply_markup=ReplyKeyboardRemove(),
     )
     if prev_step == "demo_negative_text":
         kb = InlineKeyboardMarkup(
@@ -663,7 +676,7 @@ async def cb_pos_from_neg(query: CallbackQuery) -> None:
     )
     await query.message.answer(
         "🧪 <i>Демо-режим — позитив</i>\n\n"
-        f"Оставьте отзыв о <b>«{escape_html(ds.get('name', 'салон'))}»</b> по ссылкам и пришлите скрин в чат.",
+        f"Оставьте <b>один</b> отзыв или на Яндекс.Картах, или в 2 ГИС  о <b>«{escape_html(ds.get('name', 'салон'))}»</b> по ссылкам и пришлите скрин в чат.",
         parse_mode="HTML",
         reply_markup=kb,
     )
@@ -688,7 +701,7 @@ async def cb_roi(query: CallbackQuery) -> None:
     await query.message.edit_text(
         "💰 <b>Оценка эффекта (демо)</b>\n\n"
         f"Поток: <b>{escape_html(clients)}</b> клиентов в месяц.\n"
-        f"Если около 30% ставят «5», и половина из них оставляет отзыв — это примерно <b>+{extra}</b> отзывов в месяц к карточке.\n\n"
+        f"Если около 30% ставят «5», и половина из них оставляет отзыв — это примерно <b>+{_plural(extra, 'отзыв', 'отзыва', 'отзывов')}</b> в месяц к карточке.\n\n"
         "Сильная карточка на картах даёт больше просмотров в поиске по району — без доп. бюджета на клики.\n\n"
         "Ниже — готовые пакеты под салон.",
         parse_mode="HTML",
