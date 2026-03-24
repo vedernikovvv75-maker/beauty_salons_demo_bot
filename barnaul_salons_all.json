@@ -235,7 +235,7 @@
       "rating2gis": 1.0,
       "reviews2gis": 16,
       "urlYandex": "https://yandex.ru/maps/org/art_nail/144001192185/",
-      "ratingYandex": 0,
+      "ratingYandex": null,
       "reviewsYandex": 2,
       "url2gisReviews": "https://2gis.ru/barnaul/firm/70000001109956752/tab/reviews",
       "urlYandexReviews": "https://yandex.ru/maps/org/art_nail/144001192185/reviews/"
@@ -504,7 +504,7 @@
       "rating2gis": 4.9,
       "reviews2gis": 148,
       "urlYandex": "https://yandex.ru/maps/org/art_natura/99245095126/",
-      "ratingYandex": 0,
+      "ratingYandex": null,
       "reviewsYandex": 0,
       "url2gisReviews": "https://2gis.ru/barnaul/firm/70000001062657739/tab/reviews",
       "urlYandexReviews": "https://yandex.ru/maps/org/art_natura/99245095126/reviews/"
@@ -536,7 +536,7 @@
       "rating2gis": 5.0,
       "reviews2gis": 5,
       "urlYandex": "https://yandex.ru/maps/org/musa/154285698463/",
-      "ratingYandex": 0,
+      "ratingYandex": null,
       "reviewsYandex": 8,
       "url2gisReviews": "https://2gis.ru/barnaul/firm/70000001065924275/tab/reviews",
       "urlYandexReviews": "https://yandex.ru/maps/org/musa/154285698463/reviews/"
@@ -614,7 +614,7 @@
       "rating2gis": 5.0,
       "reviews2gis": 24,
       "urlYandex": "https://yandex.ru/maps/org/your_beauty_vibes/30694971363/",
-      "ratingYandex": 0,
+      "ratingYandex": null,
       "reviewsYandex": 10,
       "url2gisReviews": "https://2gis.ru/barnaul/firm/70000001106073007/tab/reviews",
       "urlYandexReviews": "https://yandex.ru/maps/org/your_beauty_vibes/30694971363/reviews/"

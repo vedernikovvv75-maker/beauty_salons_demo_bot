@@ -36,6 +36,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _v(val, default: str = "—"):
+    """Return val even if 0; use default only for None."""
+    return default if val is None else val
+
+
 def _plural(n: int, one: str, few: str, many: str) -> str:
     n_abs = abs(n)
     if 11 <= n_abs % 100 <= 19:
@@ -165,9 +170,9 @@ async def send_stats_and_sales(message_or_bot, uid: int | None = None, chat_id: 
     if ny is not None or n2 is not None:
         parts = []
         if ny is not None:
-            parts.append(f"Яндекс: <b>{ny}</b> (рейтинг {ry or '—'})")
+            parts.append(f"Яндекс: <b>{ny}</b> (рейтинг {_v(ry)})")
         if n2 is not None:
-            parts.append(f"2ГИС: <b>{n2}</b> (рейтинг {r2 or '—'})")
+            parts.append(f"2ГИС: <b>{n2}</b> (рейтинг {_v(r2)})")
         reviews_block = (
             f"\n📊 <b>Текущие отзывы «{salon_name}»:</b>\n"
             + "\n".join(f"    • {p}" for p in parts)
@@ -576,8 +581,8 @@ async def _show_salon_card(bot: Bot, chat_id: int, salon: dict, idx: int, total:
     ny = salon.get("reviewsYandex")
     n2 = salon.get("reviews2gis")
 
-    y_part = f"⭐ {ry or '—'} ({ny or 0} отз.)" if ry is not None or ny is not None else "нет данных"
-    g_part = f"⭐ {r2 or '—'} ({n2 or 0} отз.)" if r2 is not None or n2 is not None else "нет данных"
+    y_part = f"⭐ {_v(ry)} ({_v(ny, 0)} отз.)" if ry is not None or ny is not None else "нет данных"
+    g_part = f"⭐ {_v(r2)} ({_v(n2, 0)} отз.)" if r2 is not None or n2 is not None else "нет данных"
 
     text = (
         f"<b>Салон {idx + 1}/{total}</b>\n\n"
@@ -740,9 +745,9 @@ async def cb_rate(query: CallbackQuery) -> None:
             n2 = ds.get("reviews2gis")
             parts = []
             if ry is not None or ny is not None:
-                parts.append(f"Яндекс: ⭐ {ry or '—'} ({_plural(ny or 0, 'отзыв', 'отзыва', 'отзывов')})")
+                parts.append(f"Яндекс: ⭐ {_v(ry)} ({_plural(_v(ny, 0), 'отзыв', 'отзыва', 'отзывов')})")
             if r2 is not None or n2 is not None:
-                parts.append(f"2ГИС: ⭐ {r2 or '—'} ({_plural(n2 or 0, 'отзыв', 'отзыва', 'отзывов')})")
+                parts.append(f"2ГИС: ⭐ {_v(r2)} ({_plural(_v(n2, 0), 'отзыв', 'отзыва', 'отзывов')})")
             if parts:
                 metrics_line = "\n📊 " + " | ".join(parts) + "\n"
             await query.message.edit_text(
@@ -856,9 +861,9 @@ async def on_photo(message: Message) -> None:
     n2 = ds.get("reviews2gis")
     metrics_parts = []
     if ry is not None or ny is not None:
-        metrics_parts.append(f"Яндекс: ⭐ {ry or '—'} ({_plural(ny or 0, 'отзыв', 'отзыва', 'отзывов')})")
+        metrics_parts.append(f"Яндекс: ⭐ {_v(ry)} ({_plural(_v(ny, 0), 'отзыв', 'отзыва', 'отзывов')})")
     if r2 is not None or n2 is not None:
-        metrics_parts.append(f"2ГИС: ⭐ {r2 or '—'} ({_plural(n2 or 0, 'отзыв', 'отзыва', 'отзывов')})")
+        metrics_parts.append(f"2ГИС: ⭐ {_v(r2)} ({_plural(_v(n2, 0), 'отзыв', 'отзыва', 'отзывов')})")
 
     sid = secrets.token_hex(6)
     pending_screens[sid] = {

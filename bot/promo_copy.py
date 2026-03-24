@@ -10,10 +10,9 @@ def escape_html(s: str | int | float | None) -> str:
     return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def fmt(n):
-    if n is None or n == "":
-        return None
-    return n
+def _v(val, default="—"):
+    """Return val even if 0; use default only for None."""
+    return default if val is None else val
 
 
 def build_promo_message(m: dict, owner_name: str | None, salon_name: str | None) -> str:
@@ -30,12 +29,12 @@ def build_promo_message(m: dict, owner_name: str | None, salon_name: str | None)
     metrics_block = ""
     if has_data:
         yandex_line = (
-            f"    • Яндекс.Карты: ⭐ {fmt(ry) or '—'} ({f'{ny} отзывов' if ny is not None else 'нет данных'})"
+            f"    • Яндекс.Карты: ⭐ {_v(ry)} ({f'{ny} отзывов' if ny is not None else 'нет данных'})"
             if ry is not None or ny is not None
             else "    • Яндекс.Карты: нет данных"
         )
         gis_line = (
-            f"    • 2ГИС: ⭐ {fmt(r2) or '—'} ({f'{n2} отзывов' if n2 is not None else 'нет данных'})"
+            f"    • 2ГИС: ⭐ {_v(r2)} ({f'{n2} отзывов' if n2 is not None else 'нет данных'})"
             if r2 is not None or n2 is not None
             else "    • 2ГИС: нет данных"
         )
