@@ -1051,16 +1051,22 @@ async def cb_roi(query: CallbackQuery) -> None:
 async def cb_pkg(query: CallbackQuery) -> None:
     await query.answer()
     k = query.data.split(":")[1]
+    payment = (
+        "\n\n💳 Предоплата 50% через ЮMoney.\n"
+        "Ссылку на оплату получите по email, после оплаты — квитанция. Всё официально.\n"
+        "Оставшиеся 50% — после запуска бота.\n"
+        "Аренда сервера — 500 ₽/мес."
+    )
     if k == "start":
         text = (
-            "🔹 <b>Старт</b> — 10 000 ₽/мес или 25 000 ₽ разово\n\n"
+            "🔹 <b>Старт</b> — 10 000 ₽\n\n"
             "• Сбор отзывов (Яндекс + 2ГИС)\n"
             "• Ручная модерация скринов\n"
             "• Уведомления в Telegram"
         )
     elif k == "biz":
         text = (
-            "🔸 <b>Бизнес</b> — 15 000 ₽/мес\n\n"
+            "🔸 <b>Бизнес</b> — 15 000 ₽\n\n"
             "• Всё из «Старт»\n"
             "• Автовыдача скидок (CRM / Excel)\n"
             "• Статистика в Google Таблицах"
@@ -1072,7 +1078,7 @@ async def cb_pkg(query: CallbackQuery) -> None:
             "• Автосбор жалоб и уведомление старшему мастеру"
         )
     await query.message.answer(
-        text + "\n\nНапишите, если нужно сузить под ваш процесс.",
+        text + payment + "\n\nНапишите, если нужно сузить под ваш процесс.",
         parse_mode="HTML",
     )
     await send_cta_block(query.message)
