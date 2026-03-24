@@ -639,12 +639,22 @@ async def cb_adm_send(query: CallbackQuery) -> None:
     name = salon.get("name", "?")
     salon_id = salon.get("id", "")
 
-    metrics = {
-        "ratingYandex": salon.get("ratingYandex"),
-        "reviewsYandex": salon.get("reviewsYandex"),
-        "rating2gis": salon.get("rating2gis"),
-        "reviews2gis": salon.get("reviews2gis"),
-    }
+    await query.message.answer("⏳ Парсим актуальные метрики…")
+    try:
+        metrics = await fetch_salon_metrics_fresh(
+            url2gis=salon.get("url2gis"),
+            urlYandex=salon.get("urlYandex"),
+            name=name,
+            skipYandex=not (salon.get("urlYandex") or name),
+        )
+    except Exception as e:
+        logger.exception("Fresh metrics failed for %s: %s", name, e)
+        metrics = {
+            "ratingYandex": salon.get("ratingYandex"),
+            "reviewsYandex": salon.get("reviewsYandex"),
+            "rating2gis": salon.get("rating2gis"),
+            "reviews2gis": salon.get("reviews2gis"),
+        }
     promo_text = build_promo_message(metrics, None, name)
 
     await query.message.answer(
