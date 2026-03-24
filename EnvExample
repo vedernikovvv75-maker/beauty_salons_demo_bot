@@ -15,6 +15,7 @@ PROMO_CODE=BEAUTY10
 # Storage
 LEADS_JSON=leads.json
 APPLICATIONS_JSON=applications.json
+ACTIVITY_LOG_JSON=activity_log.json
 BROADCAST_PAUSE_SEC=0.75
 
 # Parser bridge (node_scripts/salon_metrics.cjs)

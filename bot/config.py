@@ -27,6 +27,7 @@ PROMO_CODE = os.getenv("PROMO_CODE", "BEAUTY10")
 
 LEADS_JSON = _ROOT / (os.getenv("LEADS_JSON") or "leads.json")
 APPLICATIONS_JSON = _ROOT / (os.getenv("APPLICATIONS_JSON") or "applications.json")
+ACTIVITY_LOG_JSON = _ROOT / (os.getenv("ACTIVITY_LOG_JSON") or "activity_log.json")
 BROADCAST_PAUSE_SEC = float(os.getenv("BROADCAST_PAUSE_SEC", "0.75"))
 
 NODE_SCRIPTS_DIR = _ROOT / "node_scripts"
