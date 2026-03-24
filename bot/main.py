@@ -892,8 +892,7 @@ async def on_photo(message: Message) -> None:
     )
     cap = (
         "📸 <b>Скрин на проверке</b>\n"
-        f"Пользователь: @{escape_html(message.from_user.username or '—')}\n"
-        f'Ссылка: <a href="tg://user?id={uid}">открыть диалог</a>\n\n'
+        f'<a href="tg://user?id={uid}">открыть диалог</a>\n\n'
         f"Салон: <b>«{salon_name}»</b>\n"
     )
     if address:
@@ -909,7 +908,7 @@ async def on_photo(message: Message) -> None:
     )
     await message.answer(
         "⏳ Скрин получен. Администратор проверит и подтвердит выдачу скидки.\n\n"
-        "<i>В реальности вы получаете уведомление в Telegram и жмёте одну кнопку, да или нет, чтобы подтвердить или отклонить скрин — без накруток.</i>",
+        "<i>В реальности вы получаете уведомление в Telegram и жмёте одну кнопку, да или нет, чтобы подтвердить или отклонить скрин.</i>",
         parse_mode="HTML",
     )
 

@@ -101,19 +101,24 @@ function parse2gisFromHtml(html) {
 }
 
 async function extract2gisStats(page) {
-  await page.waitForTimeout(600);
-  try {
-    await page.waitForFunction(
-      () =>
-        document.body &&
-        /оценок|оценк/i.test(document.body.innerText),
-      { timeout: 12000 }
-    );
-  } catch {
-    /* ignore */
-  }
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(800);
 
+  // Wait for SPA to render rating-related text (longer timeout for slow pages)
+  for (const pattern of [/оценок|оценки|оценка/i, /отзыв/i]) {
+    try {
+      await page.waitForFunction(
+        (re) => document.body && new RegExp(re).test(document.body.innerText),
+        pattern.source,
+        { timeout: 20000 }
+      );
+      break;
+    } catch {
+      /* try next pattern or give up */
+    }
+  }
+  await page.waitForTimeout(800);
+
+  // Strategy 1: known CSS selectors (may break when 2GIS redeploys)
   const gisUi = await page.evaluate(
     ([selR, selM, selT]) => {
       const pick = (sel) => {
@@ -149,42 +154,132 @@ async function extract2gisStats(page) {
   let reviews = parseIntRu(gisUi.marks);
   let reviewsTab2gis = parseIntRu(gisUi.tabReviews);
 
+  // Strategy 2: DOM proximity — find element with "оценок" and walk up to find rating
+  if (rating == null || reviews == null) {
+    const proximity = await page.evaluate(() => {
+      let rating = null;
+      let reviews = null;
+
+      const walker = document.createTreeWalker(
+        document.body,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+      while (walker.nextNode()) {
+        const t = walker.currentNode.textContent.trim();
+        if (/\d+\s*(?:оценок|оценки|оценка)/i.test(t)) {
+          const rm = t.match(/(\d[\d\s]*)\s*(?:оценок|оценки|оценка)/i);
+          if (rm && !reviews) reviews = rm[1].replace(/\s/g, "");
+
+          let container = walker.currentNode.parentElement;
+          for (let depth = 0; depth < 6 && container; depth++) {
+            const ct = container.textContent || "";
+            const ratingMatch = ct.match(
+              /(\d[.,]\d)\s*[\s·•\-]?\s*\d{1,6}\s*(?:оценок|оценки|оценка)/i
+            );
+            if (ratingMatch) {
+              rating = ratingMatch[1].replace(",", ".");
+              break;
+            }
+            container = container.parentElement;
+          }
+          if (rating) break;
+        }
+      }
+
+      if (!rating) {
+        const body = document.body.innerText;
+        const lines = body.split("\n").map((l) => l.trim()).filter(Boolean);
+        for (let i = 0; i < lines.length; i++) {
+          if (/\d+\s*(?:оценок|оценки|оценка)/i.test(lines[i])) {
+            const rm = lines[i].match(/(\d[\d\s]*)\s*(?:оценок|оценки|оценка)/i);
+            if (rm && !reviews) reviews = rm[1].replace(/\s/g, "");
+
+            const rInLine = lines[i].match(/(\d[.,]\d)/);
+            if (rInLine) {
+              rating = rInLine[1].replace(",", ".");
+              break;
+            }
+            if (i > 0) {
+              const prev = lines[i - 1].match(/^(\d[.,]\d)$/);
+              if (prev) {
+                rating = prev[1].replace(",", ".");
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      return { rating, reviews };
+    });
+    if (rating == null && proximity.rating) rating = parseFloat(proximity.rating);
+    if (reviews == null && proximity.reviews) reviews = parseInt(proximity.reviews, 10);
+  }
+
+  // Strategy 3: classic one-line pattern with flexible separators
   const cardFromDom = await page.evaluate(() => {
     const body = document.body ? document.body.innerText : "";
-    const oneLine = body.match(
-      /(\d+[.,]\d)\s+(\d{1,6})\s+(?:оценок|оценки|оценка)/i
-    );
-    if (oneLine) {
-      return {
-        rating: oneLine[1].replace(",", "."),
-        reviews: oneLine[2],
-      };
+    const patterns = [
+      /(\d+[.,]\d)\s+(\d{1,6})\s+(?:оценок|оценки|оценка)/i,
+      /(\d+[.,]\d)\s*[·•\-|]\s*(\d{1,6})\s*(?:оценок|оценки|оценка)/i,
+      /(\d+[.,]\d)\n(\d{1,6})\s*(?:оценок|оценки|оценка)/i,
+    ];
+    for (const re of patterns) {
+      const m = body.match(re);
+      if (m) {
+        return { rating: m[1].replace(",", "."), reviews: m[2] };
+      }
     }
     for (const line of body.split("\n")) {
       const t = line.trim();
-      const m = t.match(
-        /^(\d+[.,]\d)\s+(\d{1,6})\s+(?:оценок|оценки|оценка)/i
-      );
-      if (m) {
-        return {
-          rating: m[1].replace(",", "."),
-          reviews: m[2],
-        };
+      for (const re of patterns) {
+        const m = t.match(re);
+        if (m) return { rating: m[1].replace(",", "."), reviews: m[2] };
       }
     }
     return null;
   });
+  if (rating == null && cardFromDom) rating = parseFloat(cardFromDom.rating);
+  if (reviews == null && cardFromDom) reviews = parseInt(cardFromDom.reviews, 10);
 
-  if (rating == null && cardFromDom)
-    rating = parseFloat(cardFromDom.rating);
-  if (reviews == null && cardFromDom)
-    reviews = parseInt(cardFromDom.reviews, 10);
-
+  // Strategy 4: parse raw HTML (structured data, JSON-LD, inline JSON)
   const html = await page.content();
   const parsed = parse2gisFromHtml(html);
   if (rating == null && parsed.rating != null) rating = parsed.rating;
   if (reviews == null && parsed.reviews != null) reviews = parsed.reviews;
 
+  // Strategy 5: embedded JSON in <script> tags
+  if (rating == null || reviews == null) {
+    const scriptData = await page.evaluate(() => {
+      let rating = null;
+      let reviews = null;
+      for (const sc of document.querySelectorAll(
+        'script[type="application/ld+json"], script:not([src])'
+      )) {
+        const t = sc.textContent || "";
+        if (!rating) {
+          const m =
+            t.match(/"ratingValue"\s*:\s*"?([\d.]+)"?/) ||
+            t.match(/"value"\s*:\s*([\d.]+)\s*,\s*"count"/) ||
+            t.match(/"rating"\s*:\s*([\d.]+)/);
+          if (m) rating = m[1];
+        }
+        if (!reviews) {
+          const m =
+            t.match(/"ratingCount"\s*:\s*"?(\d+)"?/) ||
+            t.match(/"reviewCount"\s*:\s*"?(\d+)"?/) ||
+            t.match(/"count"\s*:\s*(\d+)/);
+          if (m) reviews = m[1];
+        }
+      }
+      return { rating, reviews };
+    });
+    if (rating == null && scriptData.rating) rating = parseFloat(scriptData.rating);
+    if (reviews == null && scriptData.reviews) reviews = parseInt(scriptData.reviews, 10);
+  }
+
+  // Strategy 6: itemprop / microdata
   const ev = await page.evaluate(() => {
     function pickRating() {
       const rv = document.querySelector('[itemprop="ratingValue"]');
@@ -211,10 +306,7 @@ async function extract2gisStats(page) {
       const lines = body.split("\n");
       for (const line of lines) {
         const m = line.match(/^(\d{1,5})\s*(оценк|отзыв)/iu);
-        if (m) {
-          rev = m[1];
-          break;
-        }
+        if (m) { rev = m[1]; break; }
       }
     }
     if (!r) {
@@ -223,10 +315,10 @@ async function extract2gisStats(page) {
     }
     return { rating: r, reviews: rev };
   });
-
   if (rating == null) rating = parseFloatRu(ev.rating);
   if (reviews == null) reviews = parseIntRu(ev.reviews);
 
+  // Strategy 7: broad DOM class-name search for rating elements
   if (rating == null) {
     const domR = await page.evaluate(() => {
       const body = document.body ? document.body.innerText : "";
@@ -234,33 +326,37 @@ async function extract2gisStats(page) {
       if (m1) return m1[1].replace(",", ".");
       const m2 = body.match(/★\s*(\d+[.,]\d)|(\d+[.,]\d)\s*★/);
       if (m2) return (m2[1] || m2[2]).replace(",", ".");
-      const nodes = document.querySelectorAll(
-        "[class*='Rating'] span, [class*='_rating'] span, [class*='rating']"
-      );
-      for (const el of nodes) {
-        const t = (el.textContent || "").trim();
-        const m = t.match(/^(\d+[.,]\d)$/);
-        if (m) return m[1].replace(",", ".");
+
+      const selectors = [
+        "[class*='rating'] span",
+        "[class*='Rating'] span",
+        "[class*='_rating']",
+        "[class*='score']",
+        "[class*='stars']",
+        "[data-rating]",
+      ];
+      for (const sel of selectors) {
+        for (const el of document.querySelectorAll(sel)) {
+          const t = (el.textContent || "").trim();
+          const m = t.match(/^(\d[.,]\d)$/);
+          if (m) return m[1].replace(",", ".");
+          const attr = el.getAttribute("data-rating") || el.getAttribute("content");
+          if (attr) {
+            const am = String(attr).match(/^(\d[.,]\d)$/);
+            if (am) return am[1].replace(",", ".");
+          }
+        }
       }
       return null;
     });
     if (domR) rating = parseFloat(domR);
   }
 
-  if (reviews != null && (reviews < 0 || reviews > 20000)) {
-    reviews = null;
-  }
-  if (reviewsTab2gis != null && (reviewsTab2gis < 0 || reviewsTab2gis > 20000)) {
-    reviewsTab2gis = null;
-  }
-  if (rating != null && (rating < 1 || rating > 5.01)) {
-    rating = null;
-  }
-
+  // Strategy 8: aria-label attributes
   if (rating == null || reviews == null) {
     const aria = await page.evaluate(() => {
       const nodes = document.querySelectorAll(
-        "[aria-label*='оценк'],[aria-label*='Оценк'],[aria-label*='рейтинг'],[aria-label*='из 5']"
+        "[aria-label*='оценк'],[aria-label*='Оценк'],[aria-label*='рейтинг'],[aria-label*='из 5'],[aria-label*='rating']"
       );
       let rating = null;
       let reviews = null;
@@ -271,15 +367,40 @@ async function extract2gisStats(page) {
           if (rm) reviews = rm[1];
         }
         if (!rating) {
-          const rv = a.match(/(\d+[.,]\d)\s*из\s*5/i);
+          const rv = a.match(/(\d+[.,]\d)\s*из\s*5/i) || a.match(/(\d+[.,]\d)/);
           if (rv) rating = rv[1].replace(",", ".");
         }
       }
       return { rating, reviews };
     });
-    if (!rating && aria.rating) rating = parseFloat(aria.rating);
-    if (!reviews && aria.reviews) reviews = parseInt(aria.reviews, 10);
+    if (rating == null && aria.rating) rating = parseFloat(aria.rating);
+    if (reviews == null && aria.reviews) reviews = parseInt(aria.reviews, 10);
   }
+
+  // Strategy 9: tab reviews — broader selector fallback
+  if (reviewsTab2gis == null) {
+    reviewsTab2gis = await page.evaluate(() => {
+      for (const el of document.querySelectorAll(
+        "a[href*='tab/reviews'], [class*='tab'] span, [role='tab']"
+      )) {
+        const t = (el.textContent || "").trim();
+        if (/отзыв/i.test(t)) {
+          const m = t.match(/(\d{1,7})/);
+          if (m) return parseInt(m[1], 10);
+        }
+      }
+      const body = document.body ? document.body.innerText : "";
+      const m = body.match(/Отзывы\s+(\d{1,7})/i);
+      if (m) return parseInt(m[1], 10);
+      return null;
+    });
+  }
+
+  // Sanity bounds
+  if (reviews != null && (reviews < 0 || reviews > 50000)) reviews = null;
+  if (reviewsTab2gis != null && (reviewsTab2gis < 0 || reviewsTab2gis > 50000))
+    reviewsTab2gis = null;
+  if (rating != null && (rating < 1 || rating > 5.01)) rating = null;
 
   return {
     rating2gis: rating,
