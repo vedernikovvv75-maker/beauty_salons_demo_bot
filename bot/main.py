@@ -19,6 +19,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.filters import BaseFilter, Command
 from aiogram.types import (
     CallbackQuery,
+    Chat,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -119,23 +120,23 @@ def welcome_text() -> str:
         "Здравствуйте, коллега!\n\n"
         "Меня зовут Виталий 👋\n"
         "Я разработчик этого бота.\n\n"
-        "Проблема заключается в том, что ваши потенциальные клиенты практически всегда "
+        "😶 Ваши потенциальные клиенты практически всегда "
         "ориентируются на отзывы в Яндекс.Картах и 2ГИС. Если отзывов нет или их мало, "
-        "это также отпугивает посетителей, как и наличие отрицательных отзывов 😶\n\n"
+        "это также отпугивает посетителей, как и наличие отрицательных отзывов \n\n"
         "Однако собирать отзывы даже с довольных посетителей сложно. Они обещают оставить, "
         "потом их внимание рассеивается, и про отзыв забывают. А вам напоминать неудобно — "
         "вы понимаете, человек уже занят другими делами.\n\n"
-        "Посмотрите, как автоматизировать сбор свежих отзывов:\n"
+        "Посмотрите, как автоматизировать сбор свежих отзывов:\n\n"
         "1️⃣ гость оценивает визит по 5-балльной шкале,\n"
         "2️⃣ оставляет отзыв,\n"
         "3️⃣ отправляет скрин опубликованного отзыва и\n"
         "4️⃣ получает скидку 10% 🎯\n\n"
-        "Сейчас в демо-режиме вы как будто бы клиент вашего же салона "
-        "и пройдёте весь путь от оценки услуг до получения скидки 💸\n\n"
-        "После этого вы увидите, какие уведомления "
-        "приходят вам и какие показатели по отзывам и скидкам бот собирает 📊\n\n"
+        "💸Сейчас в демо-режиме вы как будто бы клиент вашего же салона "
+        "и пройдёте весь путь от оценки услуг до получения скидки \n\n"
+        "📊 После этого вы увидите, какие уведомления "
+        "приходят вам и какие показатели по отзывам и скидкам бот собирает \n\n"
         "Бот не тупит, не выгорает, не устаёт. "
-        "Нажмите кнопку <b>«Запустить демо»</b>, чтобы увидеть, как это может работать на вас 🚀"
+        "🚀Нажмите кнопку <b>«Запустить демо»</b>, чтобы увидеть, как это может работать на вас"
     )
 
 
@@ -275,6 +276,17 @@ async def start_demo_rating(message: Message) -> None:
 
 
 async def after_positive_done(bot: Bot, user_id: int, chat_id: int) -> None:
+    s = get_session(user_id)
+    s["done_positive"] = True
+    if s.get("done_negative"):
+        set_step(user_id, "after_negative")
+        msg = Message(
+            message_id=0, date=datetime.now(timezone.utc),
+            chat=Chat(id=chat_id, type="private"),
+        )
+        msg.set_bot(bot)
+        await send_stats_and_sales(msg, user_id)
+        return
     set_step(user_id, "after_positive")
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -302,6 +314,9 @@ async def cmd_start(message: Message) -> None:
 def _assign_demo_salon(uid: int) -> None:
     salon = pick_demo_salon()
     s = get_session(uid)
+    s.pop("done_positive", None)
+    s.pop("done_negative", None)
+    s.pop("_rate_confirmed", None)
     if salon:
         s["demo_salon"] = salon
     else:
@@ -436,21 +451,15 @@ async def cb_rate(query: CallbackQuery) -> None:
             await query.message.edit_text(
                 "🧪 <i>Демо-режим</i>\n\n"
                 "Нам жаль, что впечатление смазалось. Напишите одним сообщением, что пошло не так — "
-                "в реальном боте это уйдёт руководителю, чтобы разобраться в ситуации.",
+                "<i> реально в боевом боте это уйдёт руководителю, чтобы разобраться в ситуации.</i>",
                 parse_mode="HTML",
             )
         return
 
     if s["step"] == "demo_neg_second":
-        if n >= 4:
-            await query.answer(
-                text="Для демо негативного сценария выберите от 1⭐ до 3⭐",
-                show_alert=True,
-            )
-            return
         set_step(uid, "demo_negative_text_2")
         await query.message.edit_text(
-            "🧪 <i>Демо-режим</i>\n\n"
+            "🧪 <i>Демо-режим — негатив</i>\n\n"
             "Что случилось? Опишите в двух словах:",
             parse_mode="HTML",
         )
@@ -636,6 +645,8 @@ async def on_neg_text(message: Message) -> None:
             f'Диалог: <a href="tg://user?id={uid}">tg://user?id={uid}</a>',
             parse_mode="HTML",
         )
+    s = get_session(uid)
+    s["done_negative"] = True
     set_step(uid, "after_negative")
     await message.answer(
         "Спасибо за отзыв! Руководитель салона свяжется с вами, чтобы разобраться в ситуации.\n\n"
@@ -645,7 +656,9 @@ async def on_neg_text(message: Message) -> None:
         parse_mode="HTML",
         reply_markup=ReplyKeyboardRemove(),
     )
-    if prev_step == "demo_negative_text":
+    if s.get("done_positive"):
+        await send_stats_and_sales(message, uid)
+    else:
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="Да, позитивный сценарий", callback_data="demo_positive_from_neg")],
@@ -657,8 +670,6 @@ async def on_neg_text(message: Message) -> None:
             parse_mode="HTML",
             reply_markup=kb,
         )
-    else:
-        await send_stats_and_sales(message, uid)
 
 
 @router.callback_query(F.data == "demo_positive_from_neg")
