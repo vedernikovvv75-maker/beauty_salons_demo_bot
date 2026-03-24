@@ -78,6 +78,29 @@ def _load_hot_salons() -> list[dict]:
 
 
 
+def _categorize_salons() -> dict[str, list[dict]]:
+    src = Path(__file__).resolve().parent.parent / "barnaul_salons_all.json"
+    if not src.exists():
+        return {"hot": [], "warm": [], "cold": []}
+    with open(src, encoding="utf-8") as f:
+        data = json.load(f)
+    hot, warm, cold = [], [], []
+    for s in data.get("salons", []):
+        if not s.get("telegram"):
+            continue
+        ry = s.get("reviewsYandex")
+        r2 = s.get("reviews2gis")
+        low_y = ry is None or ry < 20
+        low_2 = r2 is None or r2 < 20
+        if low_y or low_2:
+            hot.append(s)
+        elif (ry is not None and ry <= 50) or (r2 is not None and r2 <= 50):
+            warm.append(s)
+        else:
+            cold.append(s)
+    return {"hot": hot, "warm": warm, "cold": cold}
+
+
 def pick_demo_salon() -> dict | None:
     if not _hot_salons:
         return None
@@ -439,12 +462,21 @@ async def cmd_adm(message: Message) -> None:
     if not is_admin(message.from_user.id):
         await message.answer("Команда только для администраторов.")
         return
-    full_mode = "--full" in (message.text or "")
-    users = activity_log.get_all_users()
-    if not users:
-        await message.answer("Лид-трекер пуст. Пока никто не взаимодействовал с ботом.")
-        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📋 Лид-трекер", callback_data="adm:tracker"),
+            InlineKeyboardButton(text="📤 Рассылка", callback_data="adm:broadcast"),
+        ]
+    ])
+    await message.answer("<b>Панель администратора</b>", parse_mode="HTML", reply_markup=kb)
 
+
+async def _send_tracker(target: Message | CallbackQuery, full_mode: bool = False) -> None:
+    users = activity_log.get_all_users()
+    msg = target.message if isinstance(target, CallbackQuery) else target
+    if not users:
+        await msg.answer("Лид-трекер пуст. Пока никто не взаимодействовал с ботом.")
+        return
     lines = ["<b>--- Лид-трекер ---</b>\n"]
     for uid_str, u in users.items():
         uname = u.get("username")
@@ -455,7 +487,6 @@ async def cmd_adm(message: Message) -> None:
         if not events:
             lines.append(f"{header}\n  нет действий\n")
             continue
-
         if full_mode:
             lines.append(header)
             for ev in events:
@@ -472,23 +503,201 @@ async def cmd_adm(message: Message) -> None:
                 milestones.append(f"{label}{detail} {t}")
             lines.append(header)
             lines.append("  " + " | ".join(milestones))
-
         has_setup = any(e["action"] == "cta_setup" for e in events)
         has_audit = any(e["action"] == "cta_audit" for e in events)
         if has_setup:
             lines.append("  <b>ЗАЯВКА НА НАСТРОЙКУ</b>")
         elif has_audit:
             lines.append("  заявка на аудит")
-
         last_ts = events[-1]["ts"]
         lines.append(f"  Последнее действие: {_relative_time(last_ts)}\n")
-
     text = "\n".join(lines)
     if len(text) > 4000:
         for i in range(0, len(text), 4000):
-            await message.answer(text[i:i+4000], parse_mode="HTML")
+            await msg.answer(text[i:i + 4000], parse_mode="HTML")
     else:
-        await message.answer(text, parse_mode="HTML")
+        await msg.answer(text, parse_mode="HTML")
+
+
+@router.callback_query(F.data == "adm:tracker")
+async def cb_adm_tracker(query: CallbackQuery) -> None:
+    if not is_admin(query.from_user.id):
+        await query.answer("Нет доступа", show_alert=True)
+        return
+    await query.answer()
+    await _send_tracker(query)
+
+
+@router.callback_query(F.data == "adm:broadcast")
+async def cb_adm_broadcast(query: CallbackQuery) -> None:
+    if not is_admin(query.from_user.id):
+        await query.answer("Нет доступа", show_alert=True)
+        return
+    await query.answer()
+    cats = _categorize_salons()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"🔴 Горячие ({len(cats['hot'])})",
+            callback_data="adm:cat:hot",
+        )],
+        [InlineKeyboardButton(
+            text=f"🟡 Тёплые ({len(cats['warm'])})",
+            callback_data="adm:cat:warm",
+        )],
+        [InlineKeyboardButton(
+            text=f"🔵 Холодные ({len(cats['cold'])})",
+            callback_data="adm:cat:cold",
+        )],
+    ])
+    await query.message.answer(
+        "<b>Рассылка — выберите категорию лидов</b>\n\n"
+        "🔴 <b>Горячие</b> — мало отзывов (любой показатель &lt; 20)\n"
+        "🟡 <b>Тёплые</b> — от 20 до 50 отзывов\n"
+        "🔵 <b>Холодные</b> — более 50 отзывов",
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
+
+
+def _extract_address(salon: dict) -> str:
+    other = salon.get("other", "")
+    for part in other.split("|"):
+        part = part.strip()
+        if part.lower().startswith("адрес:"):
+            return part[6:].strip()
+    return "—"
+
+
+def _extract_tg_contact(salon: dict) -> str:
+    tg = salon.get("telegram", "")
+    if not tg:
+        return "—"
+    return tg
+
+
+async def _show_salon_card(bot: Bot, chat_id: int, salon: dict, idx: int, total: int) -> None:
+    name = escape_html(salon.get("name", "?"))
+    address = escape_html(_extract_address(salon))
+    tg = salon.get("telegram", "")
+    ry = salon.get("ratingYandex")
+    r2 = salon.get("rating2gis")
+    ny = salon.get("reviewsYandex")
+    n2 = salon.get("reviews2gis")
+
+    y_part = f"⭐ {ry or '—'} ({ny or 0} отз.)" if ry is not None or ny is not None else "нет данных"
+    g_part = f"⭐ {r2 or '—'} ({n2 or 0} отз.)" if r2 is not None or n2 is not None else "нет данных"
+
+    text = (
+        f"<b>Салон {idx + 1}/{total}</b>\n\n"
+        f"🏠 <b>{name}</b>\n"
+        f"📍 {address}\n"
+        f"📱 TG: {escape_html(tg) if tg else '—'}\n\n"
+        f"Яндекс: {y_part}\n"
+        f"2ГИС: {g_part}"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Отправить бота", callback_data=f"adm:send:{idx}"),
+            InlineKeyboardButton(text="⏭ Пропустить", callback_data=f"adm:skip:{idx}"),
+        ],
+        [InlineKeyboardButton(text="🔚 Завершить", callback_data="adm:done")],
+    ])
+    await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("adm:cat:"))
+async def cb_adm_cat(query: CallbackQuery) -> None:
+    if not is_admin(query.from_user.id):
+        await query.answer("Нет доступа", show_alert=True)
+        return
+    await query.answer()
+    cat = query.data.split(":")[2]
+    cats = _categorize_salons()
+    salons = cats.get(cat, [])
+    if not salons:
+        await query.message.answer("В этой категории нет салонов с Telegram.")
+        return
+    uid = query.from_user.id
+    s = get_session(uid)
+    s["adm_queue"] = salons
+    s["adm_idx"] = 0
+    await _show_salon_card(query.bot, query.message.chat.id, salons[0], 0, len(salons))
+
+
+@router.callback_query(F.data.startswith("adm:send:"))
+async def cb_adm_send(query: CallbackQuery) -> None:
+    if not is_admin(query.from_user.id):
+        await query.answer("Нет доступа", show_alert=True)
+        return
+    await query.answer()
+    uid = query.from_user.id
+    s = get_session(uid)
+    queue = s.get("adm_queue", [])
+    idx = int(query.data.split(":")[2])
+    if idx >= len(queue):
+        await query.message.answer("Список закончился.")
+        return
+    salon = queue[idx]
+    tg = salon.get("telegram", "")
+    name = salon.get("name", "?")
+
+    metrics = {
+        "ratingYandex": salon.get("ratingYandex"),
+        "reviewsYandex": salon.get("reviewsYandex"),
+        "rating2gis": salon.get("rating2gis"),
+        "reviews2gis": salon.get("reviews2gis"),
+    }
+    promo_text = build_promo_message(metrics, None, name)
+
+    await query.message.answer(
+        f"📨 <b>Промо-сообщение для «{escape_html(name)}»:</b>\n\n"
+        f"{promo_text}\n\n"
+        "---\n"
+        f"📱 Отправьте вручную по ссылке: {escape_html(tg)}\n"
+        "Скопируйте текст выше и отправьте в Telegram этому контакту.",
+        parse_mode="HTML",
+    )
+    await query.message.answer(
+        f"✅ Промо для «{escape_html(name)}» подготовлено.",
+        parse_mode="HTML",
+    )
+
+    next_idx = idx + 1
+    if next_idx < len(queue):
+        s["adm_idx"] = next_idx
+        await _show_salon_card(query.bot, query.message.chat.id, queue[next_idx], next_idx, len(queue))
+    else:
+        await query.message.answer("Список этой категории завершён.")
+
+
+@router.callback_query(F.data.startswith("adm:skip:"))
+async def cb_adm_skip(query: CallbackQuery) -> None:
+    if not is_admin(query.from_user.id):
+        await query.answer("Нет доступа", show_alert=True)
+        return
+    await query.answer()
+    uid = query.from_user.id
+    s = get_session(uid)
+    queue = s.get("adm_queue", [])
+    idx = int(query.data.split(":")[2])
+    next_idx = idx + 1
+    if next_idx < len(queue):
+        s["adm_idx"] = next_idx
+        await _show_salon_card(query.bot, query.message.chat.id, queue[next_idx], next_idx, len(queue))
+    else:
+        await query.message.answer("Список этой категории завершён.")
+
+
+@router.callback_query(F.data == "adm:done")
+async def cb_adm_done(query: CallbackQuery) -> None:
+    if not is_admin(query.from_user.id):
+        await query.answer("Нет доступа", show_alert=True)
+        return
+    await query.answer()
+    s = get_session(query.from_user.id)
+    s.pop("adm_queue", None)
+    s.pop("adm_idx", None)
+    await query.message.answer("Рассылка завершена.")
 
 
 def _stars_kb(selected: int) -> InlineKeyboardMarkup:
