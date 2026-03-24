@@ -1,5 +1,7 @@
 """Тексты персонализированной рассылки (HTML для Telegram)."""
 
+from __future__ import annotations
+
 
 def escape_html(s: str | int | float | None) -> str:
     if s is None:
