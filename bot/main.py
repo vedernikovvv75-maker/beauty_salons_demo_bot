@@ -158,6 +158,44 @@ def get_viewer_chat_id() -> int | None:
     return int(raw) if raw else None
 
 
+def get_admin_notify_chat_id() -> int | None:
+    viewer = get_viewer_chat_id()
+    if viewer is not None:
+        return viewer
+    return config.ADMIN_IDS[0] if config.ADMIN_IDS else None
+
+
+async def notify_admin_about_application(
+    bot: Bot,
+    *,
+    kind: str,
+    user_id: int,
+    username: str | None = None,
+    first_name: str | None = None,
+    phone: str | None = None,
+) -> None:
+    chat_id = get_admin_notify_chat_id()
+    if chat_id is None:
+        return
+
+    kind_label = {
+        "audit": "Запрос на аудит",
+        "setup": "Заявка на настройку",
+        "phone": "Оставлен телефон",
+    }.get(kind, kind)
+    user_label = f"@{escape_html(username)}" if username else escape_html(first_name or "без имени")
+    text = (
+        f"📥 <b>{kind_label}</b>\n\n"
+        f"Пользователь: {user_label}\n"
+        f"ID: <code>{user_id}</code>\n"
+        f'<a href="tg://user?id={user_id}">Открыть диалог</a>'
+    )
+    if phone:
+        text += f"\nТелефон: <code>{escape_html(phone)}</code>"
+
+    await bot.send_message(chat_id, text, parse_mode="HTML")
+
+
 class DemoNegativeTextFilter(BaseFilter):
     async def __call__(self, message: Message) -> bool:
         if not message.from_user:
@@ -1406,6 +1444,7 @@ async def cb_pkg(query: CallbackQuery) -> None:
 async def cb_cta(query: CallbackQuery) -> None:
     await query.answer()
     kind = query.data.split(":")[1]
+    application_kind = "audit" if kind == "audit" else "setup"
     action = "cta_audit" if kind == "audit" else "cta_setup"
     u = query.from_user
     activity_log.log_event(u.id, action, username=u.username, first_name=u.first_name)
@@ -1414,8 +1453,15 @@ async def cb_cta(query: CallbackQuery) -> None:
         {
             "userId": u.id,
             "username": u.username,
-            "kind": "audit" if kind == "audit" else "setup",
+            "kind": application_kind,
         },
+    )
+    await notify_admin_about_application(
+        query.bot,
+        kind=application_kind,
+        user_id=u.id,
+        username=u.username,
+        first_name=u.first_name,
     )
     await query.message.answer(
         "Заявка принята. Я свяжусь с вами в Telegram для согласования времени.\n\n"
@@ -1437,6 +1483,14 @@ async def on_contact(message: Message) -> None:
             "phone": c.phone_number,
             "kind": "phone",
         },
+    )
+    await notify_admin_about_application(
+        message.bot,
+        kind="phone",
+        user_id=u.id,
+        username=u.username,
+        first_name=u.first_name,
+        phone=c.phone_number,
     )
     await message.answer(
         "Телефон получен. Перезвоню / напишу в удобное время.",
