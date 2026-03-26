@@ -11,3 +11,5 @@ services:
     volumes:
       - ./leads.json:/app/leads.json
       - ./applications.json:/app/applications.json
+      - ./activity_log.json:/app/activity_log.json
+      - ./hot_leads_all.json:/app/hot_leads_all.json
