@@ -15,7 +15,65 @@ def _v(val, default="—"):
     return default if val is None else val
 
 
-def build_promo_message(m: dict, owner_name: str | None, salon_name: str | None) -> str:
+def build_cold_outreach(
+    salon: dict,
+    *,
+    developer_name: str = "Виталий",
+    median_reviews: int | None = None,
+    bot_username: str | None = None,
+) -> str:
+    """Короткое первое сообщение для холодной рассылки — 3-5 строк с цифрами."""
+    name = escape_html(salon.get("name", ""))
+    r2 = salon.get("rating2gis")
+    n2 = salon.get("reviews2gis")
+    ry = salon.get("ratingYandex")
+    ny = salon.get("reviewsYandex")
+
+    greeting = f"«{name}», добрый день!" if name else "Добрый день!"
+
+    metrics_parts = []
+    if n2 is not None:
+        part = f"2ГИС — {n2} отз."
+        if r2 is not None:
+            part += f" (⭐ {r2})"
+        metrics_parts.append(part)
+    if ny is not None:
+        part = f"Яндекс — {ny} отз."
+        if ry is not None:
+            part += f" (⭐ {ry})"
+        metrics_parts.append(part)
+
+    if metrics_parts:
+        metrics_line = "Посмотрел карточку: " + ", ".join(metrics_parts) + "."
+    else:
+        metrics_line = "Посмотрел вашу карточку на картах."
+
+    competitor_line = ""
+    if median_reviews and n2 is not None and n2 < median_reviews:
+        competitor_line = f"\nУ большинства салонов города — от {median_reviews}."
+
+    bot_line = ""
+    if bot_username:
+        bot_line = f"\n\n👉 Демо за 2 мин: @{escape_html(bot_username)}"
+
+    return (
+        f"{greeting}\n\n"
+        f"{metrics_line}"
+        f"{competitor_line}\n\n"
+        f"Делаю Telegram-бот, который автоматически собирает отзывы "
+        f"с реальных клиентов после визита. Бесплатно покажу, как работает."
+        f"{bot_line}\n\n"
+        f"Интересно?\n"
+        f"— {escape_html(developer_name)}"
+    )
+
+
+def build_promo_message(
+    m: dict,
+    owner_name: str | None,
+    salon_name: str | None,
+) -> str:
+    """Полное промо-сообщение (для бота после /start или /send_promo)."""
     salon = (salon_name or "").strip() or "ваш салон"
     salon_esc = escape_html(salon)
 
@@ -28,43 +86,26 @@ def build_promo_message(m: dict, owner_name: str | None, salon_name: str | None)
 
     metrics_block = ""
     if has_data:
-        yandex_line = (
-            f"    • Яндекс.Карты: ⭐ {_v(ry)} ({f'{ny} отзывов' if ny is not None else 'нет данных'})"
-            if ry is not None or ny is not None
-            else "    • Яндекс.Карты: нет данных"
-        )
-        gis_line = (
-            f"    • 2ГИС: ⭐ {_v(r2)} ({f'{n2} отзывов' if n2 is not None else 'нет данных'})"
-            if r2 is not None or n2 is not None
-            else "    • 2ГИС: нет данных"
-        )
+        parts = []
+        if n2 is not None or r2 is not None:
+            parts.append(f"2ГИС: ⭐ {_v(r2)} ({n2 if n2 is not None else '?'} отз.)")
+        if ny is not None or ry is not None:
+            parts.append(f"Яндекс: ⭐ {_v(ry)} ({ny if ny is not None else '?'} отз.)")
         metrics_block = (
-            f"\n📊 <b>Текущие показатели «{salon_esc}»:</b>\n"
-            f"{yandex_line}\n"
-            f"{gis_line}\n"
+            f"\n📊 <b>«{salon_esc}» сейчас:</b>\n"
+            + "\n".join(f"    • {p}" for p in parts)
+            + "\n"
         )
 
     return (
-        "Здравствуйте, коллега!\n\n"
-        "Меня зовут Виталий 👋\n"
-        "Я разработчик этого бота.\n\n"
-        "😶 Ваши потенциальные клиенты практически всегда "
-        "ориентируются на отзывы в Яндекс.Картах и 2ГИС. Если отзывов нет или их мало, "
-        "это также отпугивает посетителей, как и наличие отрицательных отзывов\n\n"
-        "Однако собирать отзывы даже с довольных посетителей сложно. Они обещают оставить, "
-        "потом их внимание рассеивается, и про отзыв забывают. А вам напоминать неудобно — "
-        "вы понимаете, человек уже занят другими делами.\n"
+        f"Здравствуйте!\n\n"
+        f"Ваши клиенты выбирают салон по отзывам на картах. "
+        f"Мало отзывов = мало доверия = потерянные записи."
         f"{metrics_block}\n"
-        "Посмотрите, как автоматизировать сбор свежих отзывов:\n\n"
-        "1️⃣ гость оценивает визит по 5-балльной шкале,\n"
-        "2️⃣ оставляет отзыв,\n"
-        "3️⃣ отправляет скрин опубликованного отзыва и\n"
-        "4️⃣ получает скидку 10% 🎯\n\n"
-        "💸 Сейчас в демо-режиме вы как будто бы клиент вашего же салона "
-        "и пройдёте весь путь от оценки услуг до получения скидки\n\n"
-        "📊 После этого вы увидите, какие уведомления "
-        "приходят вам и какие показатели по отзывам и скидкам бот собирает\n\n"
-        "Бот не тупит, не выгорает, не устаёт.\n"
-        "🚀 Нажмите кнопку <b>«Запустить демо»</b>, чтобы увидеть, "
-        "как это может работать на вас"
+        f"Этот бот автоматизирует сбор отзывов:\n"
+        f"1️⃣ клиент оценивает визит,\n"
+        f"2️⃣ оставляет отзыв на Яндексе или 2ГИС,\n"
+        f"3️⃣ присылает скрин → получает скидку 🎯\n\n"
+        f"Вы видите статистику и модерируете одной кнопкой.\n\n"
+        f"🚀 Нажмите <b>«Запустить демо»</b> — пройдёте путь клиента за 2 минуты."
     )
