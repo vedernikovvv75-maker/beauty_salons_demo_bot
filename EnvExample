@@ -12,17 +12,30 @@ MAP_LINK_YANDEX=https://yandex.ru/maps
 MAP_LINK_2GIS=https://2gis.ru
 PROMO_CODE=BEAUTY10
 
+# Salon data (json с салонами для рассылки)
+# Барнаул: barnaul_barbershops.json или barnaul_salons_all.json
+# Новосибирск: novosibirsk_salons.json
+SALONS_JSON=barnaul_barbershops.json
+HOT_THRESHOLD=50
+WARM_THRESHOLD=150
+
 # Storage
 LEADS_JSON=leads.json
 APPLICATIONS_JSON=applications.json
 ACTIVITY_LOG_JSON=activity_log.json
 BROADCAST_PAUSE_SEC=0.75
+# Пауза между сериями в авто-рассылке (секунды)
+AUTO_SERIES_PAUSE_SEC=60
 
 # Parser bridge (node_scripts/salon_metrics.cjs)
 HEADLESS=true
 REQUEST_PAUSE_SEC=1.2
+# Барнаул:
 # YANDEX_SEARCH_BASE=https://yandex.ru/maps/197/barnaul/search
 # YANDEX_MAP_PARAMS=ll=83.662857%2C53.369517&sll=83.662193%2C53.369855&sspn=0.060854%2C0.024075&z=13.96
+# Новосибирск:
+# YANDEX_SEARCH_BASE=https://yandex.ru/maps/65/novosibirsk/search
+# YANDEX_MAP_PARAMS=ll=82.920430%2C55.030199&sll=82.920430%2C55.030199&sspn=0.300000%2C0.150000&z=12
 # Скопируйте в .env в корне проекта и подставьте значения.
 
 # --- Python-бот: python -m bot ---

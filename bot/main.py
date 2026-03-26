@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import random
 import secrets
 import sys
@@ -29,7 +30,7 @@ from aiogram.types import (
 
 from . import activity_log, config
 from .leads_store import append_application, load_leads, save_leads
-from .promo_copy import build_promo_message, escape_html
+from .promo_copy import build_cold_outreach, build_promo_message, escape_html
 from .salon_metrics import fetch_salon_metrics_fresh
 
 logging.basicConfig(level=logging.INFO)
@@ -58,50 +59,86 @@ sessions: dict[int, dict] = {}
 pending_screens: dict[str, dict] = {}
 _demo_viewer_chat_id: int | None = None
 _hot_salons: list[dict] = []
+_all_salons: list[dict] = []
+_median_reviews: int | None = None
+
+SALONS_FILE = os.getenv("SALONS_JSON", "novosibirsk_salons.json")
+HOT_THRESHOLD = int(os.getenv("HOT_THRESHOLD", "50"))
+WARM_THRESHOLD = int(os.getenv("WARM_THRESHOLD", "150"))
 
 
-def _load_hot_salons() -> list[dict]:
-    src = Path(__file__).resolve().parent.parent / "barnaul_salons_all.json"
+def _load_salons_data() -> list[dict]:
+    src = Path(__file__).resolve().parent.parent / SALONS_FILE
     if not src.exists():
-        logger.warning("barnaul_salons_all.json not found — demo will use config defaults")
+        logger.warning("%s not found — demo will use config defaults", SALONS_FILE)
         return []
     with open(src, encoding="utf-8") as f:
         data = json.load(f)
+    return data.get("salons", [])
+
+
+def _compute_median_reviews(salons: list[dict]) -> int | None:
+    values = sorted(
+        s["reviews2gis"] for s in salons
+        if s.get("reviews2gis") is not None
+    )
+    if not values:
+        return None
+    return values[len(values) // 2]
+
+
+def _load_hot_salons() -> list[dict]:
+    global _all_salons, _median_reviews
+    _all_salons = _load_salons_data()
+    _median_reviews = _compute_median_reviews(_all_salons)
+    logger.info("Median reviews2gis: %s", _median_reviews)
     result = []
-    for s in data.get("salons", []):
-        if not s.get("url2gis") or not s.get("urlYandex"):
+    for s in _all_salons:
+        if not s.get("url2gis"):
             continue
-        ry = s.get("reviewsYandex")
         r2 = s.get("reviews2gis")
-        low_y = ry is None or ry < 20
-        low_2 = r2 is None or r2 < 20
-        if low_y or low_2:
+        if r2 is None or r2 < HOT_THRESHOLD:
             result.append(s)
-    logger.info("Hot salons loaded: %d of %d", len(result), len(data.get("salons", [])))
+    logger.info("Hot salons loaded: %d of %d", len(result), len(_all_salons))
     return result
 
 
+def _has_contact(s: dict) -> bool:
+    """Salon has at least one reachable contact (phone or telegram)."""
+    if s.get("telegram"):
+        return True
+    phones = s.get("phones") or []
+    return len(phones) > 0
+
+
+def _salon_tg_link(s: dict) -> str:
+    """Build t.me link from telegram field or first mobile phone."""
+    if s.get("telegram"):
+        tg = s["telegram"]
+        if tg.startswith("https://"):
+            return tg
+        return f"https://t.me/{tg.lstrip('@')}"
+    phones = s.get("phones") or []
+    for phone in phones:
+        clean = phone.replace("+", "").replace("-", "").replace(" ", "")
+        if clean.startswith("79") and len(clean) == 11:
+            return f"https://t.me/+{clean}"
+    return ""
+
 
 def _categorize_salons(exclude_sent: bool = True) -> dict[str, list[dict]]:
-    src = Path(__file__).resolve().parent.parent / "barnaul_salons_all.json"
-    if not src.exists():
-        return {"hot": [], "warm": [], "cold": []}
-    with open(src, encoding="utf-8") as f:
-        data = json.load(f)
+    salons = _all_salons or _load_salons_data()
     sent_ids = activity_log.get_sent_salon_ids() if exclude_sent else set()
     hot, warm, cold = [], [], []
-    for s in data.get("salons", []):
-        if not s.get("telegram"):
+    for s in salons:
+        if not _has_contact(s):
             continue
         if s.get("id") in sent_ids:
             continue
-        ry = s.get("reviewsYandex")
         r2 = s.get("reviews2gis")
-        low_y = ry is None or ry < 20
-        low_2 = r2 is None or r2 < 20
-        if low_y or low_2:
+        if r2 is None or r2 < HOT_THRESHOLD:
             hot.append(s)
-        elif (ry is not None and ry <= 50) or (r2 is not None and r2 <= 50):
+        elif r2 <= WARM_THRESHOLD:
             warm.append(s)
         else:
             cold.append(s)
@@ -330,6 +367,8 @@ async def cmd_start(message: Message) -> None:
         resize_keyboard=True,
     )
     await message.answer(welcome_text(), parse_mode="HTML", reply_markup=rk)
+    if is_admin(u.id):
+        await _send_admin_panel(message.bot, message.chat.id)
 
 
 def _assign_demo_salon(uid: int) -> None:
@@ -451,18 +490,31 @@ def _fmt_time_short(iso_ts: str) -> str:
         return "?"
 
 
-@router.message(Command("adm"))
-async def cmd_adm(message: Message) -> None:
-    if not is_admin(message.from_user.id):
-        await message.answer("Команда только для администраторов.")
-        return
+async def _send_admin_panel(bot: Bot, chat_id: int) -> None:
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="📋 Лид-трекер", callback_data="adm:tracker"),
             InlineKeyboardButton(text="📤 Рассылка", callback_data="adm:broadcast"),
         ]
     ])
-    await message.answer("<b>Панель администратора</b>", parse_mode="HTML", reply_markup=kb)
+    await bot.send_message(chat_id, "<b>Панель администратора</b>", parse_mode="HTML", reply_markup=kb)
+
+
+@router.message(Command("adm"))
+async def cmd_adm(message: Message) -> None:
+    if not is_admin(message.from_user.id):
+        await message.answer("Команда только для администраторов.")
+        return
+    await _send_admin_panel(message.bot, message.chat.id)
+
+
+@router.callback_query(F.data == "adm:panel")
+async def cb_adm_panel(query: CallbackQuery) -> None:
+    if not is_admin(query.from_user.id):
+        await query.answer("Нет доступа", show_alert=True)
+        return
+    await query.answer()
+    await _send_admin_panel(query.bot, query.message.chat.id)
 
 
 async def _send_tracker(target: Message | CallbackQuery, full_mode: bool = False) -> None:
@@ -530,30 +582,273 @@ async def cb_adm_broadcast(query: CallbackQuery) -> None:
     await query.answer()
     cats = _categorize_salons(exclude_sent=True)
     total_sent = len(activity_log.get_sent_salon_ids())
-    total_remaining = len(cats["hot"]) + len(cats["warm"]) + len(cats["cold"])
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    hot_count = len(cats["hot"])
+    warm_count = len(cats["warm"])
+    cold_count = len(cats["cold"])
+    total_remaining = hot_count + warm_count + cold_count
+    kb_rows = [
         [InlineKeyboardButton(
-            text=f"🔴 Горячие ({len(cats['hot'])})",
+            text="🧪 Тест (1 горячий)",
+            callback_data="adm:blast:hot:test",
+        )],
+        [
+            InlineKeyboardButton(text="📤 Пачка 3", callback_data="adm:blast:hot:3"),
+            InlineKeyboardButton(text="📤 Пачка 5", callback_data="adm:blast:hot:5"),
+        ],
+        [InlineKeyboardButton(
+            text=f"🔴 Горячие по одному ({hot_count})",
             callback_data="adm:cat:hot",
         )],
         [InlineKeyboardButton(
-            text=f"🟡 Тёплые ({len(cats['warm'])})",
+            text=f"🟡 Тёплые по одному ({warm_count})",
             callback_data="adm:cat:warm",
         )],
         [InlineKeyboardButton(
-            text=f"🔵 Холодные ({len(cats['cold'])})",
+            text=f"🔵 Холодные по одному ({cold_count})",
             callback_data="adm:cat:cold",
         )],
-    ])
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="adm:panel")],
+    ]
     await query.message.answer(
-        "<b>Рассылка — выберите категорию лидов</b>\n\n"
+        "<b>📤 Рассылка</b>\n\n"
         f"📊 Отправлено: <b>{total_sent}</b> | Осталось: <b>{total_remaining}</b>\n\n"
-        "🔴 <b>Горячие</b> — мало отзывов (любой показатель &lt; 20)\n"
-        "🟡 <b>Тёплые</b> — от 20 до 50 отзывов\n"
-        "🔵 <b>Холодные</b> — более 50 отзывов",
+        f"🔴 Горячие (&lt; {HOT_THRESHOLD} отз.): <b>{hot_count}</b>\n"
+        f"🟡 Тёплые ({HOT_THRESHOLD}–{WARM_THRESHOLD}): <b>{warm_count}</b>\n"
+        f"🔵 Холодные (&gt; {WARM_THRESHOLD}): <b>{cold_count}</b>\n\n"
+        "<b>Пачка</b> — серия карточек с текстом и ссылкой на TG.\n"
+        "<b>Тест</b> — 1 карточка без отметки «отправлено».",
         parse_mode="HTML",
-        reply_markup=kb,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
     )
+
+
+async def _send_blast_batch(
+    bot: Bot,
+    chat_id: int,
+    salons: list[dict],
+    *,
+    mark_sent: bool = True,
+    bot_username: str | None = None,
+) -> int:
+    """Send a batch of salon cards to admin chat. Returns number sent."""
+    for i, salon in enumerate(salons):
+        cold_text = build_cold_outreach(
+            salon,
+            developer_name=config.DEVELOPER_NAME,
+            median_reviews=_median_reviews,
+            bot_username=bot_username,
+        )
+        name = escape_html(salon.get("name", "?"))
+        address = escape_html(_extract_address(salon))
+        tg_link = _salon_tg_link(salon)
+        r2 = salon.get("rating2gis")
+        n2 = salon.get("reviews2gis")
+        ry = salon.get("ratingYandex")
+        ny = salon.get("reviewsYandex")
+
+        metrics = []
+        if n2 is not None:
+            metrics.append(f"2ГИС: {_v(r2)} ({n2} отз.)")
+        if ny is not None:
+            metrics.append(f"Яндекс: {_v(ry)} ({ny} отз.)")
+        metrics_line = " | ".join(metrics) if metrics else "метрик нет"
+
+        text = (
+            f"<b>{i + 1}/{len(salons)}</b>  <b>{name}</b>\n"
+            f"📍 {address}\n"
+            f"📊 {metrics_line}\n\n"
+            f"<pre>{escape_html(cold_text)}</pre>"
+        )
+
+        buttons = []
+        if tg_link:
+            buttons.append([InlineKeyboardButton(text="✉️ Написать", url=tg_link)])
+        kb = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
+
+        await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
+
+        if mark_sent and salon.get("id"):
+            activity_log.mark_salon_sent(salon["id"])
+
+        if i < len(salons) - 1:
+            await asyncio.sleep(config.BROADCAST_PAUSE_SEC)
+    return len(salons)
+
+
+def _blast_summary_kb(cat: str, remaining: int) -> InlineKeyboardMarkup:
+    """Build the summary keyboard with manual / auto / done options."""
+    btns: list[list[InlineKeyboardButton]] = []
+    if remaining > 0:
+        next_count = min(5, remaining)
+        btns.append([InlineKeyboardButton(
+            text=f"📤 Ещё {next_count} (вручную)",
+            callback_data=f"adm:blast:{cat}:{next_count}",
+        )])
+        btns.append([InlineKeyboardButton(
+            text=f"🔄 Авто: серии по 5, интервал {int(config.AUTO_SERIES_PAUSE_SEC)}с",
+            callback_data=f"adm:auto:{cat}:5",
+        )])
+    btns.append([InlineKeyboardButton(text="◀️ К рассылке", callback_data="adm:broadcast")])
+    btns.append([InlineKeyboardButton(text="🔚 Готово", callback_data="adm:done")])
+    return InlineKeyboardMarkup(inline_keyboard=btns)
+
+
+@router.callback_query(F.data.startswith("adm:blast:"))
+async def cb_adm_blast(query: CallbackQuery) -> None:
+    """Batch broadcast: adm:blast:{cat}:{count|test}. No pre-parsing."""
+    if not is_admin(query.from_user.id):
+        await query.answer("Нет доступа", show_alert=True)
+        return
+    await query.answer()
+
+    parts = query.data.split(":")
+    cat = parts[2]
+    count_str = parts[3]
+    is_test = count_str == "test"
+    count = 1 if is_test else int(count_str)
+
+    cats = _categorize_salons(exclude_sent=True)
+    salons = cats.get(cat, [])
+    if not salons:
+        await query.message.answer("В этой категории нет салонов с контактами.")
+        return
+
+    batch = salons[:count]
+    bot_me = await query.bot.get_me()
+    chat_id = query.message.chat.id
+
+    label = "🧪 ТЕСТ" if is_test else "📤 Рассылка"
+    await query.bot.send_message(
+        chat_id,
+        f"<b>{label}</b>: {len(batch)} из {len(salons)} ({cat})…",
+        parse_mode="HTML",
+    )
+
+    await _send_blast_batch(
+        query.bot, chat_id, batch,
+        mark_sent=not is_test, bot_username=bot_me.username,
+    )
+
+    if is_test:
+        back_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ К рассылке", callback_data="adm:broadcast")],
+        ])
+        await query.bot.send_message(
+            chat_id,
+            "🧪 Тестовый показ завершён. Салон <b>не</b> отмечен как отправленный.",
+            parse_mode="HTML",
+            reply_markup=back_kb,
+        )
+    else:
+        total_sent = len(activity_log.get_sent_salon_ids())
+        cats_after = _categorize_salons(exclude_sent=True)
+        remaining = len(cats_after.get(cat, []))
+
+        await query.bot.send_message(
+            chat_id,
+            f"✅ Пачка отправлена: <b>{len(batch)}</b>\n"
+            f"📊 Всего отмечено: <b>{total_sent}</b> | Осталось ({cat}): <b>{remaining}</b>",
+            parse_mode="HTML",
+            reply_markup=_blast_summary_kb(cat, remaining),
+        )
+
+
+@router.callback_query(F.data.startswith("adm:auto:"))
+async def cb_adm_auto(query: CallbackQuery) -> None:
+    """Auto-series broadcast: adm:auto:{cat}:{batch_size}."""
+    if not is_admin(query.from_user.id):
+        await query.answer("Нет доступа", show_alert=True)
+        return
+    await query.answer()
+
+    parts = query.data.split(":")
+    cat = parts[2]
+    batch_size = int(parts[3])
+    uid = query.from_user.id
+    chat_id = query.message.chat.id
+    s = get_session(uid)
+
+    s["adm_auto_running"] = True
+    bot_me = await query.bot.get_me()
+    pause = int(config.AUTO_SERIES_PAUSE_SEC)
+
+    stop_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏹ Стоп", callback_data="adm:stop")],
+    ])
+    await query.bot.send_message(
+        chat_id,
+        f"🔄 <b>Авто-рассылка запущена</b>\n"
+        f"Серии по {batch_size}, интервал {pause}с. Нажмите «Стоп» для остановки.",
+        parse_mode="HTML",
+        reply_markup=stop_kb,
+    )
+
+    series_num = 0
+    while s.get("adm_auto_running"):
+        cats = _categorize_salons(exclude_sent=True)
+        salons = cats.get(cat, [])
+        if not salons:
+            break
+
+        batch = salons[:batch_size]
+        series_num += 1
+
+        await query.bot.send_message(
+            chat_id,
+            f"<b>▶️ Серия {series_num}</b> — {len(batch)} салонов…",
+            parse_mode="HTML",
+        )
+
+        await _send_blast_batch(
+            query.bot, chat_id, batch,
+            mark_sent=True, bot_username=bot_me.username,
+        )
+
+        total_sent = len(activity_log.get_sent_salon_ids())
+        cats_after = _categorize_salons(exclude_sent=True)
+        remaining = len(cats_after.get(cat, []))
+
+        if remaining == 0:
+            break
+
+        if not s.get("adm_auto_running"):
+            break
+
+        await query.bot.send_message(
+            chat_id,
+            f"✅ Серия {series_num}: <b>{len(batch)}</b> отправлено\n"
+            f"📊 Всего: <b>{total_sent}</b> | Осталось ({cat}): <b>{remaining}</b>\n"
+            f"⏳ Следующая серия через {pause}с…",
+            parse_mode="HTML",
+            reply_markup=stop_kb,
+        )
+
+        await asyncio.sleep(config.AUTO_SERIES_PAUSE_SEC)
+
+    s["adm_auto_running"] = False
+
+    total_sent = len(activity_log.get_sent_salon_ids())
+    cats_final = _categorize_salons(exclude_sent=True)
+    remaining = len(cats_final.get(cat, []))
+
+    await query.bot.send_message(
+        chat_id,
+        f"🏁 <b>Авто-рассылка завершена</b>\n"
+        f"Серий: <b>{series_num}</b>\n"
+        f"📊 Всего отмечено: <b>{total_sent}</b> | Осталось ({cat}): <b>{remaining}</b>",
+        parse_mode="HTML",
+        reply_markup=_blast_summary_kb(cat, remaining),
+    )
+
+
+@router.callback_query(F.data == "adm:stop")
+async def cb_adm_stop(query: CallbackQuery) -> None:
+    if not is_admin(query.from_user.id):
+        await query.answer("Нет доступа", show_alert=True)
+        return
+    s = get_session(query.from_user.id)
+    s["adm_auto_running"] = False
+    await query.answer("Остановка после текущей серии…", show_alert=True)
 
 
 def _extract_address(salon: dict) -> str:
@@ -575,30 +870,40 @@ def _extract_tg_contact(salon: dict) -> str:
 async def _show_salon_card(bot: Bot, chat_id: int, salon: dict, idx: int, total: int) -> None:
     name = escape_html(salon.get("name", "?"))
     address = escape_html(_extract_address(salon))
-    tg = salon.get("telegram", "")
+    tg_link = _salon_tg_link(salon)
+    phones = salon.get("phones") or []
     ry = salon.get("ratingYandex")
     r2 = salon.get("rating2gis")
     ny = salon.get("reviewsYandex")
     n2 = salon.get("reviews2gis")
 
-    y_part = f"⭐ {_v(ry)} ({_v(ny, 0)} отз.)" if ry is not None or ny is not None else "нет данных"
-    g_part = f"⭐ {_v(r2)} ({_v(n2, 0)} отз.)" if r2 is not None or n2 is not None else "нет данных"
+    y_part = f"⭐ {_v(ry)} ({_v(ny, 0)} отз.)" if ry is not None or ny is not None else "—"
+    g_part = f"⭐ {_v(r2)} ({_v(n2, 0)} отз.)" if r2 is not None or n2 is not None else "—"
+
+    contact_line = ""
+    if tg_link:
+        contact_line = f'📱 <a href="{escape_html(tg_link)}">Написать в TG</a>'
+    if phones:
+        contact_line += f"\n📞 {', '.join(phones[:2])}"
 
     text = (
         f"<b>Салон {idx + 1}/{total}</b>\n\n"
         f"🏠 <b>{name}</b>\n"
         f"📍 {address}\n"
-        f"📱 TG: {escape_html(tg) if tg else '—'}\n\n"
-        f"Яндекс: {y_part}\n"
-        f"2ГИС: {g_part}"
+        f"{contact_line}\n\n"
+        f"2ГИС: {g_part}\n"
+        f"Яндекс: {y_part}"
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Отправить бота", callback_data=f"adm:send:{idx}"),
-            InlineKeyboardButton(text="⏭ Пропустить", callback_data=f"adm:skip:{idx}"),
-        ],
-        [InlineKeyboardButton(text="🔚 Завершить", callback_data="adm:done")],
+
+    buttons = []
+    if tg_link:
+        buttons.append([InlineKeyboardButton(text="✉️ Открыть TG-диалог", url=tg_link)])
+    buttons.append([
+        InlineKeyboardButton(text="📋 Текст промо", callback_data=f"adm:send:{idx}"),
+        InlineKeyboardButton(text="⏭ Пропустить", callback_data=f"adm:skip:{idx}"),
     ])
+    buttons.append([InlineKeyboardButton(text="🔚 Завершить", callback_data="adm:done")])
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -635,35 +940,23 @@ async def cb_adm_send(query: CallbackQuery) -> None:
         await query.message.answer("Список закончился.")
         return
     salon = queue[idx]
-    tg = salon.get("telegram", "")
     name = salon.get("name", "?")
     salon_id = salon.get("id", "")
+    tg_link = _salon_tg_link(salon)
 
-    await query.message.answer("⏳ Парсим актуальные метрики…")
-    try:
-        metrics = await fetch_salon_metrics_fresh(
-            url2gis=salon.get("url2gis"),
-            urlYandex=salon.get("urlYandex"),
-            name=name,
-            skipYandex=not (salon.get("urlYandex") or name),
-        )
-    except Exception as e:
-        logger.exception("Fresh metrics failed for %s: %s", name, e)
-        metrics = {
-            "ratingYandex": salon.get("ratingYandex"),
-            "reviewsYandex": salon.get("reviewsYandex"),
-            "rating2gis": salon.get("rating2gis"),
-            "reviews2gis": salon.get("reviews2gis"),
-        }
-    promo_text = build_promo_message(metrics, None, name)
-
-    await query.message.answer(
-        f"📨 <b>Промо для «{escape_html(name)}»:</b>\n\n"
-        f"{promo_text}\n\n"
-        "---\n"
-        f"📱 Отправьте вручную: {escape_html(tg)}",
-        parse_mode="HTML",
+    bot_me = await query.bot.get_me()
+    cold_text = build_cold_outreach(
+        salon,
+        developer_name=config.DEVELOPER_NAME,
+        median_reviews=_median_reviews,
+        bot_username=bot_me.username,
     )
+
+    msg = f"<b>📋 Скопируйте и отправьте:</b>\n\n<pre>{escape_html(cold_text)}</pre>"
+    if tg_link:
+        msg += f'\n\n<a href="{escape_html(tg_link)}">→ Открыть диалог</a>'
+
+    await query.message.answer(msg, parse_mode="HTML")
 
     if salon_id:
         activity_log.mark_salon_sent(salon_id)
@@ -671,9 +964,9 @@ async def cb_adm_send(query: CallbackQuery) -> None:
     cats = _categorize_salons(exclude_sent=True)
     remaining = len(cats["hot"]) + len(cats["warm"]) + len(cats["cold"])
     await query.message.answer(
-        f"✅ Бот отправлен «{escape_html(name)}».\n\n"
-        f"📊 Всего отправлено: <b>{total_sent}</b> | Осталось: <b>{remaining}</b>\n"
-        f"   🔴 горячих: {len(cats['hot'])} | 🟡 тёплых: {len(cats['warm'])} | 🔵 холодных: {len(cats['cold'])}",
+        f"✅ Отмечено «{escape_html(name)}»\n\n"
+        f"📊 Отправлено: <b>{total_sent}</b> | Осталось: <b>{remaining}</b>\n"
+        f"   🔴 {len(cats['hot'])} | 🟡 {len(cats['warm'])} | 🔵 {len(cats['cold'])}",
         parse_mode="HTML",
     )
 
