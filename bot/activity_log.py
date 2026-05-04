@@ -43,7 +43,11 @@ def log_event(
     data = _load()
     key = str(uid)
     if key not in data["users"]:
-        data["users"][key] = {"username": username, "first_name": first_name, "events": []}
+        data["users"][key] = {
+            "username": username,
+            "first_name": first_name,
+            "events": [],
+        }
     user = data["users"][key]
     if username:
         user["username"] = username

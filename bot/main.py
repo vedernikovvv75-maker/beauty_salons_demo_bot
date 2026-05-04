@@ -1,7 +1,7 @@
 """
 Telegram-бот: демо сбора отзывов, продажи, рассылка /send_promo.
 
-Запуск: python -m bot.main  (из корня проекта D:\\vibe-coding\\beauty-salons)
+Запуск из корня репозитория: python -m bot  или  python -m bot.main
 """
 
 from __future__ import annotations
@@ -53,6 +53,7 @@ def _plural(n: int, one: str, few: str, many: str) -> str:
         return f"{n} {few}"
     return f"{n} {many}"
 
+
 router = Router()
 
 sessions: dict[int, dict] = {}
@@ -79,8 +80,7 @@ def _load_salons_data() -> list[dict]:
 
 def _compute_median_reviews(salons: list[dict]) -> int | None:
     values = sorted(
-        s["reviews2gis"] for s in salons
-        if s.get("reviews2gis") is not None
+        s["reviews2gis"] for s in salons if s.get("reviews2gis") is not None
     )
     if not values:
         return None
@@ -183,7 +183,11 @@ async def notify_admin_about_application(
         "setup": "Заявка на настройку",
         "phone": "Оставлен телефон",
     }.get(kind, kind)
-    user_label = f"@{escape_html(username)}" if username else escape_html(first_name or "без имени")
+    user_label = (
+        f"@{escape_html(username)}"
+        if username
+        else escape_html(first_name or "без имени")
+    )
     text = (
         f"📥 <b>{kind_label}</b>\n\n"
         f"Пользователь: {user_label}\n"
@@ -224,7 +228,9 @@ def welcome_text() -> str:
     return build_promo_message({}, None, None)
 
 
-async def send_stats_and_sales(message_or_bot, uid: int | None = None, chat_id: int | None = None) -> None:
+async def send_stats_and_sales(
+    message_or_bot, uid: int | None = None, chat_id: int | None = None
+) -> None:
     if isinstance(message_or_bot, Message):
         bot = message_or_bot.bot
         chat_id = message_or_bot.chat.id
@@ -274,7 +280,9 @@ async def send_stats_and_sales(message_or_bot, uid: int | None = None, chat_id: 
     await send_roi_block(bot, chat_id, uid)
 
 
-async def send_roi_block(bot_or_msg, chat_id: int | None = None, uid: int | None = None) -> None:
+async def send_roi_block(
+    bot_or_msg, chat_id: int | None = None, uid: int | None = None
+) -> None:
     if isinstance(bot_or_msg, Message):
         bot = bot_or_msg.bot
         chat_id = bot_or_msg.chat.id
@@ -321,7 +329,12 @@ async def send_cta_block(message: Message) -> None:
     set_step(message.from_user.id, "sales_cta")
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Заказать бесплатный аудит салона", callback_data="cta:audit")],
+            [
+                InlineKeyboardButton(
+                    text="🔍 Заказать бесплатный аудит салона",
+                    callback_data="cta:audit",
+                )
+            ],
             [
                 InlineKeyboardButton(
                     text="🚀 Получить «Старт» за 50%",
@@ -356,13 +369,15 @@ async def send_cta_block(message: Message) -> None:
 async def start_demo_rating(message: Message) -> None:
     set_step(message.from_user.id, "demo_rating")
     kb = InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(text="☆", callback_data="rate:1"),
-            InlineKeyboardButton(text="☆", callback_data="rate:2"),
-            InlineKeyboardButton(text="☆", callback_data="rate:3"),
-            InlineKeyboardButton(text="☆", callback_data="rate:4"),
-            InlineKeyboardButton(text="☆", callback_data="rate:5"),
-        ]]
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="☆", callback_data="rate:1"),
+                InlineKeyboardButton(text="☆", callback_data="rate:2"),
+                InlineKeyboardButton(text="☆", callback_data="rate:3"),
+                InlineKeyboardButton(text="☆", callback_data="rate:4"),
+                InlineKeyboardButton(text="☆", callback_data="rate:5"),
+            ]
+        ]
     )
     await message.answer(
         "🧪 <i>Демо-режим</i>\n\n"
@@ -384,7 +399,11 @@ async def after_positive_done(bot: Bot, user_id: int, chat_id: int) -> None:
     set_step(user_id, "after_positive")
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Сымитировать негатив", callback_data="demo_negative_next")]
+            [
+                InlineKeyboardButton(
+                    text="Сымитировать негатив", callback_data="demo_negative_next"
+                )
+            ]
         ]
     )
     await bot.send_message(
@@ -439,7 +458,9 @@ def _get_demo_salon(uid: int) -> dict:
 @router.message(F.text.casefold() == "запустить демо")
 async def hears_demo(message: Message) -> None:
     u = message.from_user
-    activity_log.log_event(u.id, "demo_started", username=u.username, first_name=u.first_name)
+    activity_log.log_event(
+        u.id, "demo_started", username=u.username, first_name=u.first_name
+    )
     _assign_demo_salon(u.id)
     await start_demo_rating(message)
 
@@ -464,12 +485,16 @@ async def cmd_set_viewer(message: Message) -> None:
     arg = parts[1].strip()
     if arg.lower() == "off":
         _demo_viewer_chat_id = None
-        await message.answer("Получатель сброшен на значение из .env.", parse_mode="HTML")
+        await message.answer(
+            "Получатель сброшен на значение из .env.", parse_mode="HTML"
+        )
         return
     try:
         _demo_viewer_chat_id = int(arg)
     except ValueError:
-        await message.answer("Передайте числовой chat_id или <code>off</code>.", parse_mode="HTML")
+        await message.answer(
+            "Передайте числовой chat_id или <code>off</code>.", parse_mode="HTML"
+        )
         return
     await message.answer(
         f"Модерация теперь идёт в <b>{_demo_viewer_chat_id}</b>.",
@@ -480,7 +505,11 @@ async def cmd_set_viewer(message: Message) -> None:
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     admin = is_admin(message.from_user.id)
-    extra = "/send_promo — рассылка\n/set_viewer — куда шлём модерацию\n/adm — трекер лидов\n" if admin else ""
+    extra = (
+        "/send_promo — рассылка\n/set_viewer — куда шлём модерацию\n/adm — трекер лидов\n"
+        if admin
+        else ""
+    )
     await message.answer(
         f"Команды:\n/start — сначала\n{extra}\nДемо показывает путь клиента и уведомления админам."
     )
@@ -529,13 +558,17 @@ def _fmt_time_short(iso_ts: str) -> str:
 
 
 async def _send_admin_panel(bot: Bot, chat_id: int) -> None:
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="📋 Лид-трекер", callback_data="adm:tracker"),
-            InlineKeyboardButton(text="📤 Рассылка", callback_data="adm:broadcast"),
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📋 Лид-трекер", callback_data="adm:tracker"),
+                InlineKeyboardButton(text="📤 Рассылка", callback_data="adm:broadcast"),
+            ]
         ]
-    ])
-    await bot.send_message(chat_id, "<b>Панель администратора</b>", parse_mode="HTML", reply_markup=kb)
+    )
+    await bot.send_message(
+        chat_id, "<b>Панель администратора</b>", parse_mode="HTML", reply_markup=kb
+    )
 
 
 @router.message(Command("adm"))
@@ -555,7 +588,9 @@ async def cb_adm_panel(query: CallbackQuery) -> None:
     await _send_admin_panel(query.bot, query.message.chat.id)
 
 
-async def _send_tracker(target: Message | CallbackQuery, full_mode: bool = False) -> None:
+async def _send_tracker(
+    target: Message | CallbackQuery, full_mode: bool = False
+) -> None:
     users = activity_log.get_all_users()
     msg = target.message if isinstance(target, CallbackQuery) else target
     if not users:
@@ -583,7 +618,11 @@ async def _send_tracker(target: Message | CallbackQuery, full_mode: bool = False
             for ev in events:
                 label = _ACTION_LABELS.get(ev["action"], ev["action"])
                 t = _fmt_time_short(ev["ts"])
-                detail = f" {ev['detail']}" if ev.get("detail") and ev["action"] == "rated" else ""
+                detail = (
+                    f" {ev['detail']}"
+                    if ev.get("detail") and ev["action"] == "rated"
+                    else ""
+                )
                 milestones.append(f"{label}{detail} {t}")
             lines.append(header)
             lines.append("  " + " | ".join(milestones))
@@ -598,7 +637,7 @@ async def _send_tracker(target: Message | CallbackQuery, full_mode: bool = False
     text = "\n".join(lines)
     if len(text) > 4000:
         for i in range(0, len(text), 4000):
-            await msg.answer(text[i:i + 4000], parse_mode="HTML")
+            await msg.answer(text[i : i + 4000], parse_mode="HTML")
     else:
         await msg.answer(text, parse_mode="HTML")
 
@@ -625,26 +664,34 @@ async def cb_adm_broadcast(query: CallbackQuery) -> None:
     cold_count = len(cats["cold"])
     total_remaining = hot_count + warm_count + cold_count
     kb_rows = [
-        [InlineKeyboardButton(
-            text="🧪 Тест (1 горячий)",
-            callback_data="adm:blast:hot:test",
-        )],
+        [
+            InlineKeyboardButton(
+                text="🧪 Тест (1 горячий)",
+                callback_data="adm:blast:hot:test",
+            )
+        ],
         [
             InlineKeyboardButton(text="📤 Пачка 3", callback_data="adm:blast:hot:3"),
             InlineKeyboardButton(text="📤 Пачка 5", callback_data="adm:blast:hot:5"),
         ],
-        [InlineKeyboardButton(
-            text=f"🔴 Горячие по одному ({hot_count})",
-            callback_data="adm:cat:hot",
-        )],
-        [InlineKeyboardButton(
-            text=f"🟡 Тёплые по одному ({warm_count})",
-            callback_data="adm:cat:warm",
-        )],
-        [InlineKeyboardButton(
-            text=f"🔵 Холодные по одному ({cold_count})",
-            callback_data="adm:cat:cold",
-        )],
+        [
+            InlineKeyboardButton(
+                text=f"🔴 Горячие по одному ({hot_count})",
+                callback_data="adm:cat:hot",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"🟡 Тёплые по одному ({warm_count})",
+                callback_data="adm:cat:warm",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"🔵 Холодные по одному ({cold_count})",
+                callback_data="adm:cat:cold",
+            )
+        ],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="adm:panel")],
     ]
     await query.message.answer(
@@ -718,15 +765,25 @@ def _blast_summary_kb(cat: str, remaining: int) -> InlineKeyboardMarkup:
     btns: list[list[InlineKeyboardButton]] = []
     if remaining > 0:
         next_count = min(5, remaining)
-        btns.append([InlineKeyboardButton(
-            text=f"📤 Ещё {next_count} (вручную)",
-            callback_data=f"adm:blast:{cat}:{next_count}",
-        )])
-        btns.append([InlineKeyboardButton(
-            text=f"🔄 Авто: серии по 5, интервал {int(config.AUTO_SERIES_PAUSE_SEC)}с",
-            callback_data=f"adm:auto:{cat}:5",
-        )])
-    btns.append([InlineKeyboardButton(text="◀️ К рассылке", callback_data="adm:broadcast")])
+        btns.append(
+            [
+                InlineKeyboardButton(
+                    text=f"📤 Ещё {next_count} (вручную)",
+                    callback_data=f"adm:blast:{cat}:{next_count}",
+                )
+            ]
+        )
+        btns.append(
+            [
+                InlineKeyboardButton(
+                    text=f"🔄 Авто: серии по 5, интервал {int(config.AUTO_SERIES_PAUSE_SEC)}с",
+                    callback_data=f"adm:auto:{cat}:5",
+                )
+            ]
+        )
+    btns.append(
+        [InlineKeyboardButton(text="◀️ К рассылке", callback_data="adm:broadcast")]
+    )
     btns.append([InlineKeyboardButton(text="🔚 Готово", callback_data="adm:done")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
@@ -763,14 +820,23 @@ async def cb_adm_blast(query: CallbackQuery) -> None:
     )
 
     await _send_blast_batch(
-        query.bot, chat_id, batch,
-        mark_sent=not is_test, bot_username=bot_me.username,
+        query.bot,
+        chat_id,
+        batch,
+        mark_sent=not is_test,
+        bot_username=bot_me.username,
     )
 
     if is_test:
-        back_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="◀️ К рассылке", callback_data="adm:broadcast")],
-        ])
+        back_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="◀️ К рассылке", callback_data="adm:broadcast"
+                    )
+                ],
+            ]
+        )
         await query.bot.send_message(
             chat_id,
             "🧪 Тестовый показ завершён. Салон <b>не</b> отмечен как отправленный.",
@@ -810,9 +876,11 @@ async def cb_adm_auto(query: CallbackQuery) -> None:
     bot_me = await query.bot.get_me()
     pause = int(config.AUTO_SERIES_PAUSE_SEC)
 
-    stop_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⏹ Стоп", callback_data="adm:stop")],
-    ])
+    stop_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⏹ Стоп", callback_data="adm:stop")],
+        ]
+    )
     await query.bot.send_message(
         chat_id,
         f"🔄 <b>Авто-рассылка запущена</b>\n"
@@ -838,8 +906,11 @@ async def cb_adm_auto(query: CallbackQuery) -> None:
         )
 
         await _send_blast_batch(
-            query.bot, chat_id, batch,
-            mark_sent=True, bot_username=bot_me.username,
+            query.bot,
+            chat_id,
+            batch,
+            mark_sent=True,
+            bot_username=bot_me.username,
         )
 
         total_sent = len(activity_log.get_sent_salon_ids())
@@ -905,7 +976,9 @@ def _extract_tg_contact(salon: dict) -> str:
     return tg
 
 
-async def _show_salon_card(bot: Bot, chat_id: int, salon: dict, idx: int, total: int) -> None:
+async def _show_salon_card(
+    bot: Bot, chat_id: int, salon: dict, idx: int, total: int
+) -> None:
     name = escape_html(salon.get("name", "?"))
     address = escape_html(_extract_address(salon))
     tg_link = _salon_tg_link(salon)
@@ -915,8 +988,12 @@ async def _show_salon_card(bot: Bot, chat_id: int, salon: dict, idx: int, total:
     ny = salon.get("reviewsYandex")
     n2 = salon.get("reviews2gis")
 
-    y_part = f"⭐ {_v(ry)} ({_v(ny, 0)} отз.)" if ry is not None or ny is not None else "—"
-    g_part = f"⭐ {_v(r2)} ({_v(n2, 0)} отз.)" if r2 is not None or n2 is not None else "—"
+    y_part = (
+        f"⭐ {_v(ry)} ({_v(ny, 0)} отз.)" if ry is not None or ny is not None else "—"
+    )
+    g_part = (
+        f"⭐ {_v(r2)} ({_v(n2, 0)} отз.)" if r2 is not None or n2 is not None else "—"
+    )
 
     contact_line = ""
     if tg_link:
@@ -936,11 +1013,17 @@ async def _show_salon_card(bot: Bot, chat_id: int, salon: dict, idx: int, total:
     buttons = []
     if tg_link:
         buttons.append([InlineKeyboardButton(text="✉️ Открыть TG-диалог", url=tg_link)])
-    buttons.append([
-        InlineKeyboardButton(text="📋 Текст промо", callback_data=f"adm:send:{idx}"),
-        InlineKeyboardButton(text="⏭ Пропустить", callback_data=f"adm:skip:{idx}"),
-    ])
-    buttons.append([InlineKeyboardButton(text="🔚 Завершить", callback_data="adm:done")])
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="📋 Текст промо", callback_data=f"adm:send:{idx}"
+            ),
+            InlineKeyboardButton(text="⏭ Пропустить", callback_data=f"adm:skip:{idx}"),
+        ]
+    )
+    buttons.append(
+        [InlineKeyboardButton(text="🔚 Завершить", callback_data="adm:done")]
+    )
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
 
@@ -1022,7 +1105,9 @@ async def cb_adm_skip(query: CallbackQuery) -> None:
     next_idx = idx + 1
     if next_idx < len(queue):
         s["adm_idx"] = next_idx
-        await _show_salon_card(query.bot, query.message.chat.id, queue[next_idx], next_idx, len(queue))
+        await _show_salon_card(
+            query.bot, query.message.chat.id, queue[next_idx], next_idx, len(queue)
+        )
     else:
         await query.message.answer("Список этой категории завершён.")
 
@@ -1041,13 +1126,15 @@ async def cb_adm_done(query: CallbackQuery) -> None:
 
 def _stars_kb(selected: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(
-                text="⭐" if i <= selected else "☆",
-                callback_data=f"rate:{i}",
-            )
-            for i in range(1, 6)
-        ]]
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="⭐" if i <= selected else "☆",
+                    callback_data=f"rate:{i}",
+                )
+                for i in range(1, 6)
+            ]
+        ]
     )
 
 
@@ -1058,14 +1145,18 @@ async def cb_rate(query: CallbackQuery) -> None:
     uid = query.from_user.id
     s = get_session(uid)
 
-    if s["step"] in ("demo_rating", "demo_neg_second") and s.get("_rate_confirmed") != n:
+    if (
+        s["step"] in ("demo_rating", "demo_neg_second")
+        and s.get("_rate_confirmed") != n
+    ):
         s["_rate_confirmed"] = n
-        stars_text = "⭐" * n + "☆" * (5 - n)
         await query.message.edit_reply_markup(reply_markup=_stars_kb(n))
         return
 
     s.pop("_rate_confirmed", None)
-    activity_log.log_event(uid, "rated", username=query.from_user.username, detail=str(n))
+    activity_log.log_event(
+        uid, "rated", username=query.from_user.username, detail=str(n)
+    )
 
     if s["step"] == "demo_rating":
         if n >= 4:
@@ -1073,9 +1164,21 @@ async def cb_rate(query: CallbackQuery) -> None:
             ds = _get_demo_salon(uid)
             kb = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="Отзыв на Яндекс.Картах", url=ds["urlYandexReviews"])],
-                    [InlineKeyboardButton(text="Отзыв на 2ГИС", url=ds["url2gisReviews"])],
-                    [InlineKeyboardButton(text="Готов отправить скрин", callback_data="ready_screen")],
+                    [
+                        InlineKeyboardButton(
+                            text="Отзыв на Яндекс.Картах", url=ds["urlYandexReviews"]
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Отзыв на 2ГИС", url=ds["url2gisReviews"]
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Готов отправить скрин", callback_data="ready_screen"
+                        )
+                    ],
                 ]
             )
             salon_name = escape_html(ds.get("name", "салон"))
@@ -1086,9 +1189,13 @@ async def cb_rate(query: CallbackQuery) -> None:
             n2 = ds.get("reviews2gis")
             parts = []
             if ry is not None or ny is not None:
-                parts.append(f"Яндекс: ⭐ {_v(ry)} ({_plural(_v(ny, 0), 'отзыв', 'отзыва', 'отзывов')})")
+                parts.append(
+                    f"Яндекс: ⭐ {_v(ry)} ({_plural(_v(ny, 0), 'отзыв', 'отзыва', 'отзывов')})"
+                )
             if r2 is not None or n2 is not None:
-                parts.append(f"2ГИС: ⭐ {_v(r2)} ({_plural(_v(n2, 0), 'отзыв', 'отзыва', 'отзывов')})")
+                parts.append(
+                    f"2ГИС: ⭐ {_v(r2)} ({_plural(_v(n2, 0), 'отзыв', 'отзыва', 'отзывов')})"
+                )
             if parts:
                 metrics_line = "\n📊 " + " | ".join(parts) + "\n"
             await query.message.edit_text(
@@ -1142,7 +1249,9 @@ async def cb_start_demo(query: CallbackQuery) -> None:
     if not query.message:
         return
     u = query.from_user
-    activity_log.log_event(u.id, "demo_started", username=u.username, first_name=u.first_name)
+    activity_log.log_event(
+        u.id, "demo_started", username=u.username, first_name=u.first_name
+    )
     _assign_demo_salon(u.id)
     await start_demo_rating(query.message)
 
@@ -1159,13 +1268,15 @@ async def cb_demo_neg_next(query: CallbackQuery) -> None:
     await query.answer()
     set_step(query.from_user.id, "demo_neg_second")
     kb = InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(text="☆", callback_data="rate:1"),
-            InlineKeyboardButton(text="☆", callback_data="rate:2"),
-            InlineKeyboardButton(text="☆", callback_data="rate:3"),
-            InlineKeyboardButton(text="☆", callback_data="rate:4"),
-            InlineKeyboardButton(text="☆", callback_data="rate:5"),
-        ]]
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="☆", callback_data="rate:1"),
+                InlineKeyboardButton(text="☆", callback_data="rate:2"),
+                InlineKeyboardButton(text="☆", callback_data="rate:3"),
+                InlineKeyboardButton(text="☆", callback_data="rate:4"),
+                InlineKeyboardButton(text="☆", callback_data="rate:5"),
+            ]
+        ]
     )
     await query.message.answer(
         "🧪 <i>Демо-режим — негатив</i>\n\n"
@@ -1185,7 +1296,9 @@ async def on_photo(message: Message) -> None:
     activity_log.log_event(uid, "screenshot_sent", username=message.from_user.username)
     viewer = get_viewer_chat_id() or (config.ADMIN_IDS[0] if config.ADMIN_IDS else None)
     if not viewer:
-        logger.warning("Скрин от %s, но нет получателя (ADMIN_IDS / ADMIN_GROUP_CHAT_ID пуст)", uid)
+        logger.warning(
+            "Скрин от %s, но нет получателя (ADMIN_IDS / ADMIN_GROUP_CHAT_ID пуст)", uid
+        )
         await message.answer(
             "⏳ Скрин получен. Ожидайте проверки модератором.",
             parse_mode="HTML",
@@ -1202,9 +1315,13 @@ async def on_photo(message: Message) -> None:
     n2 = ds.get("reviews2gis")
     metrics_parts = []
     if ry is not None or ny is not None:
-        metrics_parts.append(f"Яндекс: ⭐ {_v(ry)} ({_plural(_v(ny, 0), 'отзыв', 'отзыва', 'отзывов')})")
+        metrics_parts.append(
+            f"Яндекс: ⭐ {_v(ry)} ({_plural(_v(ny, 0), 'отзыв', 'отзыва', 'отзывов')})"
+        )
     if r2 is not None or n2 is not None:
-        metrics_parts.append(f"2ГИС: ⭐ {_v(r2)} ({_plural(_v(n2, 0), 'отзыв', 'отзыва', 'отзывов')})")
+        metrics_parts.append(
+            f"2ГИС: ⭐ {_v(r2)} ({_plural(_v(n2, 0), 'отзыв', 'отзыва', 'отзывов')})"
+        )
 
     sid = secrets.token_hex(6)
     pending_screens[sid] = {
@@ -1217,7 +1334,9 @@ async def on_photo(message: Message) -> None:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="✅ Одобрить", callback_data=f"scr:{sid}:ok"),
-                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"scr:{sid}:no"),
+                InlineKeyboardButton(
+                    text="❌ Отклонить", callback_data=f"scr:{sid}:no"
+                ),
             ]
         ]
     )
@@ -1279,8 +1398,18 @@ async def cb_screen_moderate(query: CallbackQuery) -> None:
             set_step(uid, "demo_wait_screenshot")
             reject_kb = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="📎 Отправить другой скрин", callback_data="ready_screen")],
-                    [InlineKeyboardButton(text="Продолжить демо ➡️", callback_data="skip_screen_resubmit")],
+                    [
+                        InlineKeyboardButton(
+                            text="📎 Отправить другой скрин",
+                            callback_data="ready_screen",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Продолжить демо ➡️",
+                            callback_data="skip_screen_resubmit",
+                        )
+                    ],
                 ]
             )
             await bot.send_message(
@@ -1310,8 +1439,9 @@ async def on_neg_text(message: Message) -> None:
         return
     uid = message.from_user.id
     t = (message.text or "").strip()
-    activity_log.log_event(uid, "negative_text", username=message.from_user.username, detail=t[:120])
-    prev_step = get_session(uid)["step"]
+    activity_log.log_event(
+        uid, "negative_text", username=message.from_user.username, detail=t[:120]
+    )
     viewer = get_viewer_chat_id()
     if viewer:
         await bot.send_message(
@@ -1338,8 +1468,17 @@ async def on_neg_text(message: Message) -> None:
     else:
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="Да, позитивный сценарий", callback_data="demo_positive_from_neg")],
-                [InlineKeyboardButton(text="Нет, к статистике", callback_data="skip_to_stats")],
+                [
+                    InlineKeyboardButton(
+                        text="Да, позитивный сценарий",
+                        callback_data="demo_positive_from_neg",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="Нет, к статистике", callback_data="skip_to_stats"
+                    )
+                ],
             ]
         )
         await message.answer(
@@ -1359,7 +1498,11 @@ async def cb_pos_from_neg(query: CallbackQuery) -> None:
         inline_keyboard=[
             [InlineKeyboardButton(text="Яндекс.Карты", url=ds["urlYandexReviews"])],
             [InlineKeyboardButton(text="2ГИС", url=ds["url2gisReviews"])],
-            [InlineKeyboardButton(text="Готов отправить скрин", callback_data="ready_screen")],
+            [
+                InlineKeyboardButton(
+                    text="Готов отправить скрин", callback_data="ready_screen"
+                )
+            ],
         ]
     )
     await query.message.answer(
@@ -1434,7 +1577,9 @@ async def cb_pkg(query: CallbackQuery) -> None:
             "• <b>Повторные напоминания</b> — если жалоба не отработана в срок"
         )
     await query.message.answer(
-        text + payment + "\n\nНапишите, если нужно изменить этот сценарий под ваш  рабочий процесс.",
+        text
+        + payment
+        + "\n\nНапишите, если нужно изменить этот сценарий под ваш  рабочий процесс.",
         parse_mode="HTML",
     )
     await send_cta_block(query.message)
@@ -1474,7 +1619,9 @@ async def cb_cta(query: CallbackQuery) -> None:
 @router.message(F.contact)
 async def on_contact(message: Message) -> None:
     u = message.from_user
-    activity_log.log_event(u.id, "phone_shared", username=u.username, first_name=u.first_name)
+    activity_log.log_event(
+        u.id, "phone_shared", username=u.username, first_name=u.first_name
+    )
     c = message.contact
     append_application(
         config.APPLICATIONS_JSON,
@@ -1501,6 +1648,12 @@ async def on_contact(message: Message) -> None:
 
 @router.message(Command("send_promo"))
 async def cmd_send_promo(message: Message) -> None:
+    """Рассылка промо по `leads.json` (только ADMIN_IDS).
+
+    Перед каждым получателем дергает свежие метрики через Node (`fetch_salon_metrics_fresh`),
+    собирает текст через `build_promo_message`, ставит `sent`/таймштампы и сохраняет JSON.
+    Флаг `--all` в тексте команды снимает фильтр по уже отправленным (`sent: true`).
+    """
     bot = message.bot
     if not is_admin(message.from_user.id):
         await message.answer("Команда только для администраторов.")
@@ -1514,12 +1667,14 @@ async def cmd_send_promo(message: Message) -> None:
         return
 
     leads = [
-        l
-        for l in data["leads"]
-        if l.get("telegram_chat_id") and (force_all or not l.get("sent"))
+        item
+        for item in data["leads"]
+        if item.get("telegram_chat_id") and (force_all or not item.get("sent"))
     ]
     if not leads:
-        await message.answer("Нет лидов для отправки (проверьте telegram_chat_id и sent).")
+        await message.answer(
+            "Нет лидов для отправки (проверьте telegram_chat_id и sent)."
+        )
         return
 
     await message.answer(f"Рассылка: {len(leads)} адресатов. Парсинг перед каждым…")
@@ -1540,7 +1695,11 @@ async def cmd_send_promo(message: Message) -> None:
             )
             kb = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="🚀 Запустить демо", callback_data="start_demo")]
+                    [
+                        InlineKeyboardButton(
+                            text="🚀 Запустить демо", callback_data="start_demo"
+                        )
+                    ]
                 ]
             )
             await bot.send_message(
@@ -1573,7 +1732,11 @@ async def _daily_reminder(bot: Bot) -> None:
         if next_run <= now_msk:
             next_run += timedelta(days=1)
         wait_sec = (next_run - now_msk).total_seconds()
-        logger.info("Reminder: next fire in %.0f sec (%s MSK)", wait_sec, next_run.strftime("%Y-%m-%d %H:%M"))
+        logger.info(
+            "Reminder: next fire in %.0f sec (%s MSK)",
+            wait_sec,
+            next_run.strftime("%Y-%m-%d %H:%M"),
+        )
         await asyncio.sleep(wait_sec)
 
         if not config.ADMIN_IDS:
@@ -1584,17 +1747,15 @@ async def _daily_reminder(bot: Bot) -> None:
         users = activity_log.get_all_users()
         total = len(users)
         demos = sum(
-            1 for u in users.values()
+            1
+            for u in users.values()
             if any(e["action"] == "demo_started" for e in u.get("events", []))
         )
 
         if setup_leads:
-            names = ", ".join(
-                f"@{u.get('username', '?')}" for _, u in setup_leads
-            )
+            names = ", ".join(f"@{u.get('username', '?')}" for _, u in setup_leads)
             text = (
-                f"6:00 МСК — есть заявка на настройку от {names}!\n"
-                "Подробности: /adm"
+                f"6:00 МСК — есть заявка на настройку от {names}!\n" "Подробности: /adm"
             )
         else:
             text = (
@@ -1610,6 +1771,11 @@ async def _daily_reminder(bot: Bot) -> None:
 
 
 async def main() -> None:
+    """Загрузка данных салонов, лог активности, сборка Bot/Dispatcher и polling aiogram.
+
+    При отсутствии `BOT_TOKEN` завершает процесс с ошибкой. При `HTTPS_PROXY`
+    использует `AiohttpSession` с прокси (нужен пакет aiohttp-socks).
+    """
     global _hot_salons
     _hot_salons = _load_hot_salons()
     activity_log.init(config.ACTIVITY_LOG_JSON)
@@ -1617,7 +1783,9 @@ async def main() -> None:
         print("Задайте BOT_TOKEN в .env", file=sys.stderr)
         sys.exit(1)
     try:
-        session = AiohttpSession(proxy=config.HTTPS_PROXY) if config.HTTPS_PROXY else None
+        session = (
+            AiohttpSession(proxy=config.HTTPS_PROXY) if config.HTTPS_PROXY else None
+        )
     except RuntimeError as exc:
         if config.HTTPS_PROXY:
             print(

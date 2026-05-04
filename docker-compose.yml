@@ -1,10 +1,11 @@
+# Токен и ADMIN_IDS только в .env (файл в .gitignore). Не прописывать их здесь.
 services:
   bot:
     build:
       context: .
       dockerfile: Dockerfile
-    image: beauty-salons-bot:latest
-    container_name: beauty-salons-bot
+    image: beauty_salons_demo_bot:latest
+    container_name: beauty_salons_demo_bot
     restart: unless-stopped
     env_file:
       - .env

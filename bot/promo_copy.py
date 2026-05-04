@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 def escape_html(s: str | int | float | None) -> str:
+    """Экранирует `&`, `<`, `>` для parse_mode=HTML; ``None`` → пустая строка."""
     if s is None:
         return ""
     t = str(s)

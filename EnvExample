@@ -1,6 +1,6 @@
-# Telegram bot
-BOT_TOKEN=
-ADMIN_IDS=
+# Telegram bot (скопируйте в .env и подставьте значения)
+BOT_TOKEN=YOUR_BOT_TOKEN_HERE
+ADMIN_IDS=YOUR_TELEGRAM_USER_ID
 ADMIN_GROUP_CHAT_ID=
 HTTPS_PROXY=
 
@@ -27,7 +27,7 @@ BROADCAST_PAUSE_SEC=0.75
 # Пауза между сериями в авто-рассылке (секунды)
 AUTO_SERIES_PAUSE_SEC=60
 
-# Parser bridge (node_scripts/salon_metrics.cjs)
+# Parser bridge: бот вызывает node_scripts/fetch_metrics.cjs (скрипты scrape_* — отдельный пайплайн)
 HEADLESS=true
 REQUEST_PAUSE_SEC=1.2
 # Барнаул:
@@ -36,23 +36,7 @@ REQUEST_PAUSE_SEC=1.2
 # Новосибирск:
 # YANDEX_SEARCH_BASE=https://yandex.ru/maps/65/novosibirsk/search
 # YANDEX_MAP_PARAMS=ll=82.920430%2C55.030199&sll=82.920430%2C55.030199&sspn=0.300000%2C0.150000&z=12
-# Скопируйте в .env в корне проекта и подставьте значения.
-
-# --- Python-бот: python -m bot ---
-BOT_TOKEN=YOUR_BOT_TOKEN_HERE
-ADMIN_IDS=YOUR_ADMIN_ID
-# ADMIN_GROUP_CHAT_ID=-1001234567890
-# DEMO_OWNER_NAME=Анна
-# DEVELOPER_NAME=Виталий
-# DEMO_SALON_NAME=Салон «Демо»
-# MAP_LINK_YANDEX=https://yandex.ru/maps/org/...
-# MAP_LINK_2GIS=https://2gis.ru/.../firm/...
-PROMO_CODE=BEAUTY10
-# LEADS_JSON=leads.json
-# APPLICATIONS_JSON=applications.json
-# BROADCAST_PAUSE_SEC=0.75
 
 # --- Парсинг метрик для /send_promo (Node + Playwright в node_scripts/) ---
 # После клонирования: cd node_scripts && npm install && npx playwright install chromium
-# Те же переменные, что в оригинальном парсере: HEADLESS, REQUEST_PAUSE_SEC, YANDEX_SEARCH_BASE, YANDEX_MAP_PARAMS
 # HEADLESS=true

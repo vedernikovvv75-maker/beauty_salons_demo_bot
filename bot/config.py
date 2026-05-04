@@ -16,7 +16,9 @@ ADMIN_IDS = [
 ]
 _raw_admin_group = (os.getenv("ADMIN_GROUP_CHAT_ID") or "").strip()
 ADMIN_GROUP_CHAT_ID: str | None = (
-    _raw_admin_group if _raw_admin_group and _raw_admin_group.lstrip("-").isdigit() else None
+    _raw_admin_group
+    if _raw_admin_group and _raw_admin_group.lstrip("-").isdigit()
+    else None
 )
 HTTPS_PROXY = (os.getenv("HTTPS_PROXY") or os.getenv("https_proxy") or "").strip()
 
